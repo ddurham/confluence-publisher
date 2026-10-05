@@ -31,11 +31,14 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Collections.emptyList;
+import static java.util.Collections.emptyMap;
 import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toMap;
 import static org.apache.commons.codec.digest.DigestUtils.sha256Hex;
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
 import static org.sahli.asciidoc.confluence.publisher.client.OrphanRemovalStrategy.REMOVE_ORPHANS;
@@ -51,6 +54,7 @@ public class ConfluencePublisher {
 
     static final String CONTENT_HASH_PROPERTY_KEY = "content-hash";
     static final String ATTACHMENT_HASH_SUFFIX = "-attachment-hash";
+    static final String COMBINED_HASH_PROPERTY_KEY = "combined-hash";
     static final int INITIAL_PAGE_VERSION = 1;
 
     private final ConfluencePublisherMetadata metadata;
@@ -111,40 +115,43 @@ public class ConfluencePublisher {
 
     private void startPublishingReplacingAncestorId(ConfluencePageMetadata rootPage, String spaceKey, String ancestorId) {
         if (rootPage != null) {
-            updatePage(ancestorId, null, rootPage);
-
-            addOrUpdateLabels(ancestorId, rootPage.getLabels());
-
-            deleteConfluenceAttachmentsNotPresentUnderPage(ancestorId, rootPage.getAttachments());
-            addAttachments(ancestorId, rootPage.getAttachments());
+            updateExistingPageUnlessUnchanged(ancestorId, null, rootPage);
 
             startPublishingUnderAncestorId(rootPage.getChildren(), spaceKey, ancestorId);
         }
     }
 
     private void startPublishingUnderAncestorId(List<ConfluencePageMetadata> pages, String spaceKey, String ancestorId) {
-        if (this.orphanRemovalStrategy == REMOVE_ORPHANS) {
-            deleteConfluencePagesNotPresentUnderAncestor(pages, ancestorId);
+        Map<String, String> existingChildPageIdsByTitle = emptyMap();
+
+        if (this.orphanRemovalStrategy == REMOVE_ORPHANS || !pages.isEmpty()) {
+            List<ConfluencePage> childPagesOnConfluence = this.confluenceClient.getChildPages(ancestorId);
+
+            if (this.orphanRemovalStrategy == REMOVE_ORPHANS) {
+                deleteConfluencePagesNotPresentUnderAncestor(pages, childPagesOnConfluence);
+            }
+
+            // child pages listing already contains the ids of existing pages, saves one lookup by title per page
+            existingChildPageIdsByTitle = childPagesOnConfluence.stream()
+                    .collect(toMap(ConfluencePage::getTitle, ConfluencePage::getContentId, (first, second) -> first));
         }
-        pages.forEach(page -> {
+
+        for (ConfluencePageMetadata page : pages) {
             try {
-                String contentId = addOrUpdatePageUnderAncestor(spaceKey, ancestorId, page);
-
-                addOrUpdateLabels(contentId, page.getLabels());
-
-                deleteConfluenceAttachmentsNotPresentUnderPage(contentId, page.getAttachments());
-                addAttachments(contentId, page.getAttachments());
+                String contentId = addOrUpdatePageUnderAncestor(spaceKey, ancestorId, page, existingChildPageIdsByTitle.get(page.getTitle()));
 
                 startPublishingUnderAncestorId(page.getChildren(), spaceKey, contentId);
             } catch (Exception e) {
                 throw new RuntimeException("Could not publish page '" + page.getTitle() + "'", e);
             }
-        });
+        }
     }
 
     private void deleteConfluencePagesNotPresentUnderAncestor(List<ConfluencePageMetadata> pagesToKeep, String ancestorId) {
-        List<ConfluencePage> childPagesOnConfluence = this.confluenceClient.getChildPages(ancestorId);
+        deleteConfluencePagesNotPresentUnderAncestor(pagesToKeep, this.confluenceClient.getChildPages(ancestorId));
+    }
 
+    private void deleteConfluencePagesNotPresentUnderAncestor(List<ConfluencePageMetadata> pagesToKeep, List<ConfluencePage> childPagesOnConfluence) {
         List<ConfluencePage> childPagesOnConfluenceToDelete = childPagesOnConfluence.stream()
                 .filter(childPageOnConfluence -> pagesToKeep.stream().noneMatch(page -> page.getTitle().equals(childPageOnConfluence.getTitle())))
                 .collect(toList());
@@ -169,20 +176,68 @@ public class ConfluencePublisher {
                 });
     }
 
-    private String addOrUpdatePageUnderAncestor(String spaceKey, String ancestorId, ConfluencePageMetadata page) {
+    private String addOrUpdatePageUnderAncestor(String spaceKey, String ancestorId, ConfluencePageMetadata page, String knownContentId) {
         String contentId;
 
         try {
-            contentId = this.confluenceClient.getPageByTitle(spaceKey, ancestorId, page.getTitle());
-            updatePage(contentId, ancestorId, page);
+            contentId = knownContentId != null ? knownContentId : this.confluenceClient.getPageByTitle(spaceKey, ancestorId, page.getTitle());
         } catch (NotFoundException e) {
             String content = fileContent(page.getContentFilePath(), UTF_8);
             contentId = this.confluenceClient.addPageUnderAncestor(spaceKey, ancestorId, page.getTitle(), content, this.versionMessage);
             this.confluenceClient.setPropertyByKey(contentId, CONTENT_HASH_PROPERTY_KEY, hash(content));
             this.confluencePublisherListener.pageAdded(new ConfluencePage(contentId, page.getTitle(), content, INITIAL_PAGE_VERSION));
+
+            publishLabelsAndAttachments(contentId, page);
+            this.confluenceClient.setPropertyByKey(contentId, COMBINED_HASH_PROPERTY_KEY, combinedHash(page));
+
+            return contentId;
         }
 
+        updateExistingPageUnlessUnchanged(contentId, ancestorId, page);
+
         return contentId;
+    }
+
+    private void updateExistingPageUnlessUnchanged(String contentId, String ancestorId, ConfluencePageMetadata page) {
+        String newCombinedHash = combinedHash(page);
+        String existingCombinedHash = this.confluenceClient.getPropertyByKey(contentId, COMBINED_HASH_PROPERTY_KEY);
+
+        // one single property covers title, content, labels and attachments: nothing else to check for an unchanged page
+        if (newCombinedHash.equals(existingCombinedHash)) {
+            return;
+        }
+
+        if (existingCombinedHash != null) {
+            // avoid a stale combined hash wrongly matching later in case publishing fails half-way
+            this.confluenceClient.deletePropertyByKey(contentId, COMBINED_HASH_PROPERTY_KEY);
+        }
+
+        updatePage(contentId, ancestorId, page);
+        publishLabelsAndAttachments(contentId, page);
+
+        this.confluenceClient.setPropertyByKey(contentId, COMBINED_HASH_PROPERTY_KEY, newCombinedHash);
+    }
+
+    private void publishLabelsAndAttachments(String contentId, ConfluencePageMetadata page) {
+        addOrUpdateLabels(contentId, page.getLabels());
+
+        deleteConfluenceAttachmentsNotPresentUnderPage(contentId, page.getAttachments());
+        addAttachments(contentId, page.getAttachments());
+    }
+
+    private static String combinedHash(ConfluencePageMetadata page) {
+        StringBuilder combined = new StringBuilder();
+        combined.append("title:").append(page.getTitle()).append('\n');
+        combined.append("content:").append(hash(fileContent(page.getContentFilePath(), UTF_8))).append('\n');
+
+        page.getLabels().stream()
+                .sorted()
+                .forEach((label) -> combined.append("label:").append(label).append('\n'));
+
+        new TreeMap<>(page.getAttachments())
+                .forEach((attachmentFileName, attachmentPath) -> combined.append("attachment:").append(attachmentFileName).append(':').append(hash(fileInputStream(Paths.get(attachmentPath)))).append('\n'));
+
+        return hash(combined.toString());
     }
 
     private void updatePage(String contentId, String ancestorId, ConfluencePageMetadata page) {

@@ -57,6 +57,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
+import static org.sahli.asciidoc.confluence.publisher.client.ConfluencePublisher.COMBINED_HASH_PROPERTY_KEY;
 import static org.sahli.asciidoc.confluence.publisher.client.ConfluencePublisher.CONTENT_HASH_PROPERTY_KEY;
 import static org.sahli.asciidoc.confluence.publisher.client.ConfluencePublisher.INITIAL_PAGE_VERSION;
 import static org.sahli.asciidoc.confluence.publisher.client.OrphanRemovalStrategy.KEEP_ORPHANS;
@@ -665,6 +666,84 @@ public class ConfluencePublisherTest {
         verify(confluenceClientMock, times(1)).deleteLabel(eq("2345"), eq("obsolete-label"));
         verify(confluenceClientMock, times(0)).deleteLabel(eq("2345"), eq("label-two"));
         verify(confluenceClientMock, times(1)).addLabels(eq("2345"), eq(singletonList("label-one")));
+    }
+
+    @Test
+    public void publish_existingPagePresentInChildPagesOfAncestor_doesNotLookUpPageByTitle() {
+        // arrange
+        ConfluenceClient confluenceClientMock = mock(ConfluenceClient.class);
+        when(confluenceClientMock.getChildPages("1234")).thenReturn(singletonList(new ConfluencePage("3456", "Existing Page", 1)));
+        when(confluenceClientMock.getPageWithContentAndVersionById("3456")).thenReturn(new ConfluencePage("3456", "Existing Page", "<h1>Some Other Confluence Content</h1>", 1));
+
+        ConfluencePublisher confluencePublisher = confluencePublisher("existing-page-ancestor-id", confluenceClientMock);
+
+        // act
+        confluencePublisher.publish();
+
+        // assert
+        verify(confluenceClientMock, never()).getPageByTitle(any(), any(), any());
+        verify(confluenceClientMock, never()).addPageUnderAncestor(any(), any(), any(), any(), any());
+        verify(confluenceClientMock, times(1)).updatePage(eq("3456"), eq("1234"), eq("Existing Page"), eq("<h1>Some Confluence Content</h1>"), eq(2), any(), eq(true));
+    }
+
+    @Test
+    public void publish_existingPageWithSameCombinedHash_onlyReadsCombinedHashProperty() {
+        // arrange
+        String combinedHash = combinedHashSetWhenPublishing("root-ancestor-id-page-with-attachments");
+
+        ConfluenceClient confluenceClientMock = mock(ConfluenceClient.class);
+        when(confluenceClientMock.getPropertyByKey("72189173", COMBINED_HASH_PROPERTY_KEY)).thenReturn(combinedHash);
+
+        ConfluencePublisherListener confluencePublisherListenerMock = mock(ConfluencePublisherListener.class);
+
+        ConfluencePublisher confluencePublisher = confluencePublisher("root-ancestor-id-page-with-attachments", REPLACE_ANCESTOR, confluenceClientMock, confluencePublisherListenerMock, null);
+
+        // act
+        confluencePublisher.publish();
+
+        // assert
+        verify(confluenceClientMock, times(1)).getPropertyByKey("72189173", COMBINED_HASH_PROPERTY_KEY);
+        verify(confluenceClientMock, times(1)).getChildPages("72189173");
+        verifyNoMoreInteractions(confluenceClientMock);
+
+        verify(confluencePublisherListenerMock, times(1)).publishCompleted();
+        verifyNoMoreInteractions(confluencePublisherListenerMock);
+    }
+
+    @Test
+    public void publish_existingPageWithDifferentCombinedHash_invalidatesCombinedHashBeforePublishingAndSetsNewCombinedHashAfterwards() {
+        // arrange
+        String combinedHash = combinedHashSetWhenPublishing("root-ancestor-id-page-with-attachments");
+
+        ConfluenceClient confluenceClientMock = mock(ConfluenceClient.class);
+        when(confluenceClientMock.getPropertyByKey("72189173", COMBINED_HASH_PROPERTY_KEY)).thenReturn("someOtherCombinedHash");
+        when(confluenceClientMock.getPageWithContentAndVersionById("72189173")).thenReturn(new ConfluencePage("72189173", "Existing Page (Old Title)", "<h1>Some Confluence Content</h1>", 1));
+        when(confluenceClientMock.getAttachmentByFileName(any(), any())).thenThrow(new NotFoundException());
+
+        ConfluencePublisher confluencePublisher = confluencePublisher("root-ancestor-id-page-with-attachments", REPLACE_ANCESTOR, confluenceClientMock);
+
+        // act
+        confluencePublisher.publish();
+
+        // assert
+        InOrder inOrder = inOrder(confluenceClientMock);
+        inOrder.verify(confluenceClientMock).deletePropertyByKey("72189173", COMBINED_HASH_PROPERTY_KEY);
+        inOrder.verify(confluenceClientMock).updatePage(eq("72189173"), any(), any(), any(), eq(2), any(), eq(true));
+        inOrder.verify(confluenceClientMock, times(2)).addAttachment(eq("72189173"), any(), any());
+        inOrder.verify(confluenceClientMock).setPropertyByKey("72189173", COMBINED_HASH_PROPERTY_KEY, combinedHash);
+    }
+
+    private static String combinedHashSetWhenPublishing(String qualifier) {
+        ConfluenceClient confluenceClientMock = mock(ConfluenceClient.class);
+        when(confluenceClientMock.getPageWithContentAndVersionById(any())).thenReturn(new ConfluencePage("any", "any", "any", 1));
+        when(confluenceClientMock.getAttachmentByFileName(any(), any())).thenThrow(new NotFoundException());
+
+        confluencePublisher(qualifier, REPLACE_ANCESTOR, confluenceClientMock).publish();
+
+        ArgumentCaptor<String> combinedHash = ArgumentCaptor.forClass(String.class);
+        verify(confluenceClientMock).setPropertyByKey(any(), eq(COMBINED_HASH_PROPERTY_KEY), combinedHash.capture());
+
+        return combinedHash.getValue();
     }
 
     private static ConfluencePublisher confluencePublisher(String qualifier, ConfluenceClient confluenceRestClient) {
