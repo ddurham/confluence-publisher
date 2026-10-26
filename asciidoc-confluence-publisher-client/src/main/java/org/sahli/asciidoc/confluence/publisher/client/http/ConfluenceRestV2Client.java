@@ -70,8 +70,7 @@ public class ConfluenceRestV2Client implements ConfluenceClient {
     static final int ATTACHMENTS_PAGE_SIZE = 250;
 
     private final CloseableHttpClient httpClient;
-    private final String username;
-    private final String passwordOrPersonalAccessToken;
+    private final String authorizationHeader;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final HttpRequestV2Factory httpRequestV2Factory;
     private final RateLimiter rateLimiter;
@@ -92,17 +91,31 @@ public class ConfluenceRestV2Client implements ConfluenceClient {
     }
 
     ConfluenceRestV2Client(String rootConfluenceUrl, CloseableHttpClient httpClient, Double maxRequestsPerSecond, String username, String passwordOrPersonalAccessToken, TooManyRequestsRetry tooManyRequestsRetry) {
+        this(rootConfluenceUrl, httpClient, maxRequestsPerSecond, tooManyRequestsRetry, authorizationHeaderValue(username, passwordOrPersonalAccessToken));
+    }
+
+    ConfluenceRestV2Client(String rootConfluenceUrl, CloseableHttpClient httpClient, Double maxRequestsPerSecond, TooManyRequestsRetry tooManyRequestsRetry, String authorizationHeader) {
         assertMandatoryParameter(httpClient != null, "httpClient");
 
         this.tooManyRequestsRetry = tooManyRequestsRetry;
 
         this.httpClient = httpClient;
         this.rateLimiter = maxRequestsPerSecond != null ? RateLimiter.create(maxRequestsPerSecond) : null;
-        this.username = username;
-        this.passwordOrPersonalAccessToken = passwordOrPersonalAccessToken;
+        this.authorizationHeader = authorizationHeader;
 
         this.httpRequestV2Factory = new HttpRequestV2Factory(rootConfluenceUrl);
         configureObjectMapper();
+    }
+
+    /**
+     * Sends {@code authorizationHeader} verbatim as the Authorization header of every request, e.g. a value
+     * that a credential-injecting proxy replaces and that therefore must not be base64-encoded here.
+     */
+    public static ConfluenceRestV2Client withAuthorizationHeader(String rootConfluenceUrl, ProxyConfiguration proxyConfiguration, boolean disableSslVerification, boolean enableHttpClientSystemProperties, Double maxRequestsPerSecond, Integer connectionTTL, String authorizationHeader) {
+        assertMandatoryParameter(authorizationHeader != null && !authorizationHeader.isEmpty(), "authorizationHeader");
+
+        return new ConfluenceRestV2Client(rootConfluenceUrl, defaultHttpClient(proxyConfiguration, disableSslVerification, enableHttpClientSystemProperties, connectionTTL), maxRequestsPerSecond,
+                defaultTooManyRequestsRetry(), authorizationHeader);
     }
 
     private void configureObjectMapper() {
@@ -240,7 +253,7 @@ public class ConfluenceRestV2Client implements ConfluenceClient {
     }
 
     <T> T sendRequest(HttpRequestBase httpRequest, Function<HttpResponse, T> responseHandler) {
-        httpRequest.addHeader(AUTHORIZATION, authorizationHeaderValue(this.username, this.passwordOrPersonalAccessToken));
+        httpRequest.addHeader(AUTHORIZATION, this.authorizationHeader);
 
         for (int retriesSoFar = 0; ; retriesSoFar++) {
             if (this.rateLimiter != null) {

@@ -32,6 +32,7 @@ import static java.util.Collections.emptyMap;
 import static java.util.Collections.singletonList;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class CommandLineClientTest {
@@ -58,6 +59,25 @@ public class CommandLineClientTest {
                 () -> AsciidocConfluencePublisherCommandLineClient.resolvePassword(new String[]{"spaceKey=X"}, emptyMap()));
 
         assertThat(e.getMessage(), is("mandatory argument 'password' is missing"));
+    }
+
+    @Test
+    public void resolveAuthorization_readsEnv() {
+        assertThat(AsciidocConfluencePublisherCommandLineClient.resolveAuthorization(Map.of("CONFLUENCE_PUBLISHER_AUTHORIZATION", "Basic syseng-ph-x")), is("Basic syseng-ph-x"));
+    }
+
+    @Test
+    public void resolveAuthorization_emptyOrMissing_isNull() {
+        assertThat(AsciidocConfluencePublisherCommandLineClient.resolveAuthorization(Map.of("CONFLUENCE_PUBLISHER_AUTHORIZATION", "")), is(nullValue()));
+        assertThat(AsciidocConfluencePublisherCommandLineClient.resolveAuthorization(emptyMap()), is(nullValue()));
+    }
+
+    @Test
+    public void buildConfluenceClient_authorizationWithV1_throws() {
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> AsciidocConfluencePublisherCommandLineClient.buildConfluenceClient("v1", "http://localhost", null, false, null, null, null, null, "Basic x"));
+
+        assertThat(e.getMessage(), is("CONFLUENCE_PUBLISHER_AUTHORIZATION needs restApiVersion v2"));
     }
 
     @Test

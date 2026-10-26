@@ -57,13 +57,16 @@ import static org.sahli.asciidoc.confluence.publisher.client.PublishingStrategy.
 public class AsciidocConfluencePublisherCommandLineClient {
 
     private static final String PASSWORD_ENV_VARIABLE = "CONFLUENCE_PUBLISHER_PASSWORD";
+    private static final String AUTHORIZATION_ENV_VARIABLE = "CONFLUENCE_PUBLISHER_AUTHORIZATION";
 
     public static void main(String[] args) throws Exception {
         ArgumentsParser argumentsParser = new ArgumentsParser();
         String rootConfluenceUrl = argumentsParser.mandatoryArgument("rootConfluenceUrl", args);
         boolean skipSslVerification = argumentsParser.optionalBooleanArgument("skipSslVerification", args).orElse(false);
         String username = argumentsParser.optionalArgument("username", args).orElse(null);
-        String password = resolvePassword(args, System.getenv());
+        // a ready-made Authorization header value replaces username and password
+        String authorization = resolveAuthorization(System.getenv());
+        String password = authorization != null ? null : resolvePassword(args, System.getenv());
         String spaceKey = argumentsParser.mandatoryArgument("spaceKey", args);
         String ancestorId = argumentsParser.mandatoryArgument("ancestorId", args);
         String versionMessage = argumentsParser.optionalArgument("versionMessage", args).orElse(null);
@@ -119,7 +122,7 @@ public class AsciidocConfluencePublisherCommandLineClient {
                 System.out.println("Publishing to Confluence (REST API " + restApiVersion + ")");
                 ProxyConfiguration proxyConfiguration = new ProxyConfiguration(proxyScheme, proxyHost, proxyPort, proxyUsername, proxyPassword);
 
-                ConfluenceClient confluenceClient = buildConfluenceClient(restApiVersion, rootConfluenceUrl, proxyConfiguration, skipSslVerification, maxRequestsPerSecond, connectionTTL, username, password);
+                ConfluenceClient confluenceClient = buildConfluenceClient(restApiVersion, rootConfluenceUrl, proxyConfiguration, skipSslVerification, maxRequestsPerSecond, connectionTTL, username, password, authorization);
                 ConfluencePublisher confluencePublisher = new ConfluencePublisher(confluencePublisherMetadata, publishingStrategy, orphanRemovalStrategy, confluenceClient, new SystemOutLoggingConfluencePublisherListener(), versionMessage, notifyWatchers, ownership);
                 confluencePublisher.publish();
             }
@@ -146,6 +149,10 @@ public class AsciidocConfluencePublisherCommandLineClient {
         return new ArgumentsParser().optionalArgument("password", args)
                 .or(() -> Optional.ofNullable(env.get(PASSWORD_ENV_VARIABLE)).filter((value) -> !value.isEmpty()))
                 .orElseThrow(() -> new IllegalArgumentException("mandatory argument 'password' is missing"));
+    }
+
+    static String resolveAuthorization(Map<String, String> env) {
+        return Optional.ofNullable(env.get(AUTHORIZATION_ENV_VARIABLE)).filter((value) -> !value.isEmpty()).orElse(null);
     }
 
     static Ownership resolveOwnership(String[] args) {
@@ -175,7 +182,15 @@ public class AsciidocConfluencePublisherCommandLineClient {
         return new Ownership(label.get(), repo.get(), pathPrefix.get(), repoRoot.orElse(null));
     }
 
-    private static ConfluenceClient buildConfluenceClient(String restApiVersion, String rootConfluenceUrl, ProxyConfiguration proxyConfiguration, boolean skipSslVerification, Double maxRequestsPerSecond, Integer connectionTTL, String username, String password) {
+    static ConfluenceClient buildConfluenceClient(String restApiVersion, String rootConfluenceUrl, ProxyConfiguration proxyConfiguration, boolean skipSslVerification, Double maxRequestsPerSecond, Integer connectionTTL, String username, String password, String authorization) {
+        if (authorization != null) {
+            if ("v1".equals(restApiVersion)) {
+                throw new IllegalArgumentException(AUTHORIZATION_ENV_VARIABLE + " needs restApiVersion v2");
+            }
+
+            return ConfluenceRestV2Client.withAuthorizationHeader(rootConfluenceUrl, proxyConfiguration, skipSslVerification, false, maxRequestsPerSecond, connectionTTL, authorization);
+        }
+
         if ("v1".equals(restApiVersion)) {
             return new ConfluenceRestV1Client(rootConfluenceUrl, proxyConfiguration, skipSslVerification, false, maxRequestsPerSecond, connectionTTL, username, password);
         } else {

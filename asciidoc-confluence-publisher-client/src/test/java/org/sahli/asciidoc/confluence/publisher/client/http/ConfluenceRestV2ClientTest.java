@@ -236,6 +236,38 @@ public class ConfluenceRestV2ClientTest {
         assertThat(this.recordedRequests, hasSize(1));
     }
 
+    @Test
+    public void withAuthorizationHeader_sendsTheHeaderVerbatim() {
+        // arrange
+        respondWith(200, "{\"results\": []}", null);
+        ConfluenceRestV2Client client = ConfluenceRestV2Client.withAuthorizationHeader("http://localhost:" + this.server.getAddress().getPort(), null, false, false, null, null, "Basic syseng-ph-atlassian");
+
+        // act
+        client.deletePropertyByKey("1234", "content-hash");
+
+        // assert
+        assertThat(this.recordedRequests, hasSize(1));
+        assertThat(this.recordedRequests.get(0).authorizationHeaders, contains("Basic syseng-ph-atlassian"));
+    }
+
+    @Test
+    public void sendRequest_withUsernameAndPassword_sendsBasicAuthorization() {
+        // arrange
+        respondWith(200, "{\"results\": []}", null);
+
+        // act
+        confluenceRestV2Client(0).deletePropertyByKey("1234", "content-hash");
+
+        // assert
+        assertThat(this.recordedRequests.get(0).authorizationHeaders, contains("Basic dXNlcjpwYXNzd29yZA=="));
+    }
+
+    @Test
+    public void withAuthorizationHeader_empty_throws() {
+        assertThrows(IllegalArgumentException.class,
+                () -> ConfluenceRestV2Client.withAuthorizationHeader("http://localhost", null, false, false, null, null, ""));
+    }
+
     private ConfluenceRestV2Client confluenceRestV2Client(int maxRetries) {
         TooManyRequestsRetry tooManyRequestsRetry = new TooManyRequestsRetry(maxRetries, 100, 60000, this.pauses::add);
 

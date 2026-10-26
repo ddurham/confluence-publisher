@@ -20,6 +20,10 @@ upstream tag `0.35.0`. It exists because Atlassian throttles the publisher's pag
    break is not turned into a hard break next to a code span):
    - The token is read from the environment variable `CONFLUENCE_PUBLISHER_PASSWORD` (not a
      command line argument).
+   - `CONFLUENCE_PUBLISHER_AUTHORIZATION`, when set, is sent verbatim as the `Authorization` header
+     of every request, and `username` and the password are not needed (REST API v2 only). This is
+     for a credential-injecting proxy (a Docker sandbox) that replaces a placeholder only where the
+     header value is that placeholder, which Basic auth's base64 would hide.
    - `metadataOutputFile=<path>` writes the published page tree as JSON, with each page's source
      path. The parent directory must exist.
    - `ownerLabel`, `ownerRepo` and `ownerPathPrefix` (all three or none) mark pages as owned by a
