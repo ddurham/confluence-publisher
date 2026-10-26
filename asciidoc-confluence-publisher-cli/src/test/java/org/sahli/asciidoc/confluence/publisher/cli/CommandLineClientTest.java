@@ -25,6 +25,7 @@ import org.sahli.asciidoc.confluence.publisher.client.metadata.ConfluencePageMet
 import org.sahli.asciidoc.confluence.publisher.client.metadata.ConfluencePublisherMetadata;
 
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Map;
 
 import static java.util.Collections.emptyMap;
@@ -84,6 +85,28 @@ public class CommandLineClientTest {
     public void resolveOwnership_partial_throws() {
         assertThrows(IllegalArgumentException.class,
                 () -> AsciidocConfluencePublisherCommandLineClient.resolveOwnership(new String[]{"ownerLabel=syseng-src-abc", "ownerRepo=group/repo"}));
+    }
+
+    @Test
+    public void resolveOwnership_withoutRepoRoot_hasNoRepoRoot() {
+        Ownership ownership = AsciidocConfluencePublisherCommandLineClient.resolveOwnership(new String[]{"ownerLabel=syseng-src-abc", "ownerRepo=group/repo", "ownerPathPrefix=docs"});
+
+        assertThat(ownership.repoRoot(), is((Path) null));
+    }
+
+    @Test
+    public void resolveOwnership_withRepoRoot_parsesIt() {
+        Ownership ownership = AsciidocConfluencePublisherCommandLineClient.resolveOwnership(new String[]{"ownerLabel=syseng-src-abc", "ownerRepo=group/repo", "ownerPathPrefix=docs", "ownerRepoRoot=/work/repo"});
+
+        assertThat(ownership.repoRoot(), is(Paths.get("/work/repo")));
+    }
+
+    @Test
+    public void resolveOwnership_repoRootWithoutOwnership_throws() {
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> AsciidocConfluencePublisherCommandLineClient.resolveOwnership(new String[]{"ownerRepoRoot=/work/repo"}));
+
+        assertThat(e.getMessage(), is("argument 'ownerRepoRoot' needs 'ownerLabel', 'ownerRepo' and 'ownerPathPrefix'"));
     }
 
     @Test

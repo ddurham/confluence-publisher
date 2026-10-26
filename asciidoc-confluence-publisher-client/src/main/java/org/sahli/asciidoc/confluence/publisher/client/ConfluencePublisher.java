@@ -17,6 +17,7 @@
 package org.sahli.asciidoc.confluence.publisher.client;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.sahli.asciidoc.confluence.publisher.client.http.ConfluenceAttachment;
 import org.sahli.asciidoc.confluence.publisher.client.http.ConfluenceClient;
@@ -29,6 +30,7 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -233,6 +235,10 @@ public class ConfluencePublisher {
             throw new PageOwnedElsewhereException(page.getTitle(), contentId, this.ownership.repo());
         }
 
+        if (this.ownership != null) {
+            refusePageOfOtherExistingDoc(contentId, page);
+        }
+
         if (existingCombinedHash != null) {
             // avoid a stale combined hash wrongly matching later in case publishing fails half-way
             this.confluenceClient.deletePropertyByKey(contentId, COMBINED_HASH_PROPERTY_KEY);
@@ -330,12 +336,55 @@ public class ConfluencePublisher {
         String existingContentHash = this.confluenceClient.getPropertyByKey(contentId, CONTENT_HASH_PROPERTY_KEY);
         String newContentHash = hash(content);
 
-        if (notSameHash(existingContentHash, newContentHash) || !existingPage.getTitle().equals(page.getTitle())) {
+        if (notSameHash(existingContentHash, newContentHash) || !existingPage.getTitle().equals(page.getTitle()) || needsReparenting(existingPage, ancestorId)) {
             this.confluenceClient.deletePropertyByKey(contentId, CONTENT_HASH_PROPERTY_KEY);
             int newPageVersion = existingPage.getVersion() + 1;
             this.confluenceClient.updatePage(contentId, ancestorId, page.getTitle(), content, newPageVersion, this.versionMessage, this.notifyWatchers);
             this.confluenceClient.setPropertyByKey(contentId, CONTENT_HASH_PROPERTY_KEY, newContentHash);
             this.confluencePublisherListener.pageUpdated(existingPage, new ConfluencePage(contentId, page.getTitle(), content, newPageVersion));
+        }
+    }
+
+    private boolean needsReparenting(ConfluencePage existingPage, String ancestorId) {
+        // a doc moved between destinations of the same repo is found by title elsewhere in the space
+        return this.ownership != null && ancestorId != null && existingPage.getParentId() != null && !existingPage.getParentId().equals(ancestorId);
+    }
+
+    /**
+     * A page found by title whose source lies outside this run's docs folder belongs to another destination of the same
+     * repo. It is taken over only when its doc is gone from the repo (the doc moved here); otherwise two docs share a
+     * title, and publishing would overwrite the other one.
+     */
+    private void refusePageOfOtherExistingDoc(String contentId, ConfluencePageMetadata page) {
+        String pathPrefix = normalizedPathPrefix(this.ownership.pathPrefix());
+        if (!isNotBlank(pathPrefix)) {
+            return;
+        }
+
+        String existingSourcePath = sourcePathOf(this.confluenceClient.getPropertyByKey(contentId, SOURCE_PROPERTY_KEY));
+        if (existingSourcePath == null || existingSourcePath.startsWith(pathPrefix + "/")) {
+            return;
+        }
+
+        Path repoRoot = this.ownership.repoRoot();
+        if (repoRoot != null && !Files.isRegularFile(repoRoot.resolve(existingSourcePath))) {
+            return;
+        }
+
+        throw PageOwnedElsewhereException.publishedFromOtherDoc(page.getTitle(), contentId, this.ownership.repo(), existingSourcePath);
+    }
+
+    private static String sourcePathOf(String sourceProperty) {
+        if (sourceProperty == null) {
+            return null;
+        }
+
+        try {
+            JsonNode path = OBJECT_MAPPER.readTree(sourceProperty).get("path");
+
+            return path != null && path.isTextual() && isNotBlank(path.asText()) ? path.asText() : null;
+        } catch (JsonProcessingException e) {
+            return null;
         }
     }
 

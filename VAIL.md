@@ -24,7 +24,11 @@ upstream tag `0.35.0`. It exists because Atlassian throttles the publisher's pag
      path. The parent directory must exist.
    - `ownerLabel`, `ownerRepo` and `ownerPathPrefix` (all three or none) mark pages as owned by a
      repo and refuse to overwrite pages of another one. An empty `ownerPathPrefix=` means the
-     repo root.
+     repo root. A changed page whose parent is not `ancestorId` is moved under it.
+   - `ownerRepoRoot=<absolute path>` (optional, with the three above): a page found by title whose
+     `syseng-source` path lies outside `ownerPathPrefix` is taken over only when that file no longer
+     exists under the repo root (the doc moved here); otherwise, or without `ownerRepoRoot`, the
+     publish is refused before any write, as two docs of the repo share a title in the space.
    - A failed publish prints `Publishing to Confluence failed: <root cause>` on stderr.
 
 An unchanged page costs 2 requests (upstream: about 15 with four diagrams). The first publish of a

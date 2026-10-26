@@ -7,10 +7,21 @@ public class PageOwnedElsewhereException extends RuntimeException {
     private final String repo;
 
     public PageOwnedElsewhereException(String title, String contentId, String repo) {
-        super("page '" + title + "' (id " + contentId + ") exists in space but was not published from " + repo + "; rename the doc or set a title prefix");
+        this(title, contentId, repo, "page '" + title + "' (id " + contentId + ") exists in space but was not published from " + repo + "; rename the doc or set a title prefix");
+    }
+
+    private PageOwnedElsewhereException(String title, String contentId, String repo, String message) {
+        super(message);
         this.title = title;
         this.contentId = contentId;
         this.repo = repo;
+    }
+
+    /**
+     * The page was published from another doc of the same repo, which still exists: two docs share a title.
+     */
+    public static PageOwnedElsewhereException publishedFromOtherDoc(String title, String contentId, String repo, String sourcePath) {
+        return new PageOwnedElsewhereException(title, contentId, repo, "page '" + title + "' (id " + contentId + ") is published from " + sourcePath + " in this repo; titles must be unique within a space");
     }
 
     public String getTitle() {

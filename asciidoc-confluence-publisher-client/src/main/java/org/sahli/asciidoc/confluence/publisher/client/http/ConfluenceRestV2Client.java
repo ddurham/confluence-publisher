@@ -381,8 +381,9 @@ public class ConfluenceRestV2Client implements ConfluenceClient {
         String title = extractTitleFromJsonNode(jsonNode);
         String content = extractContentFromJsonNode(jsonNode);
         int version = extractVersionFromJsonNode(jsonNode);
+        String parentId = jsonNode.hasNonNull("parentId") ? jsonNode.get("parentId").asText() : null;
 
-        return new ConfluencePage(id, title, content, version);
+        return new ConfluencePage(id, title, content, version, parentId);
     }
 
     private static String extractContentFromJsonNode(JsonNode jsonNode) {

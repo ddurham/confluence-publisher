@@ -161,6 +161,19 @@ public class ConfluenceRestV2ClientTest {
     }
 
     @Test
+    public void getPageWithContentAndVersionById_returnsParentId() {
+        // arrange
+        respondWith(200, "{\"id\": \"72\", \"title\": \"Title\", \"parentId\": \"555\", \"version\": {\"number\": 3}}", null);
+
+        // act
+        ConfluencePage page = confluenceRestV2Client(0).getPageWithContentAndVersionById("72");
+
+        // assert
+        assertThat(page.getParentId(), is("555"));
+        assertThat(page.getVersion(), is(3));
+    }
+
+    @Test
     public void getAttachments_withValidParameters_requestsMaximumPageSize() {
         // arrange
         respondWith(200, "{\"results\": [], \"_links\": {}}", null);

@@ -158,7 +158,13 @@ public class AsciidocConfluencePublisherCommandLineClient {
                 .map((arg) -> arg.substring(arg.indexOf('=') + 1))
                 .findFirst();
 
+        Optional<Path> repoRoot = argumentsParser.optionalArgument("ownerRepoRoot", args).map(Paths::get);
+
         if (label.isEmpty() && repo.isEmpty() && pathPrefix.isEmpty()) {
+            if (repoRoot.isPresent()) {
+                throw new IllegalArgumentException("argument 'ownerRepoRoot' needs 'ownerLabel', 'ownerRepo' and 'ownerPathPrefix'");
+            }
+
             return null;
         }
 
@@ -166,7 +172,7 @@ public class AsciidocConfluencePublisherCommandLineClient {
             throw new IllegalArgumentException("arguments 'ownerLabel', 'ownerRepo' and 'ownerPathPrefix' must be given together or not at all");
         }
 
-        return new Ownership(label.get(), repo.get(), pathPrefix.get());
+        return new Ownership(label.get(), repo.get(), pathPrefix.get(), repoRoot.orElse(null));
     }
 
     private static ConfluenceClient buildConfluenceClient(String restApiVersion, String rootConfluenceUrl, ProxyConfiguration proxyConfiguration, boolean skipSslVerification, Double maxRequestsPerSecond, Integer connectionTTL, String username, String password) {

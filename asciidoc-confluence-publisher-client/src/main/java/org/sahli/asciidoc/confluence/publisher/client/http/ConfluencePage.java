@@ -25,16 +25,22 @@ public class ConfluencePage {
     private final String title;
     private final String content;
     private final int version;
+    private final String parentId;
 
     public ConfluencePage(String contentId, String title, int version) {
         this(contentId, title, null, version);
     }
 
     public ConfluencePage(String contentId, String title, String content, int version) {
+        this(contentId, title, content, version, null);
+    }
+
+    public ConfluencePage(String contentId, String title, String content, int version, String parentId) {
         this.contentId = contentId;
         this.title = title;
         this.content = content;
         this.version = version;
+        this.parentId = parentId;
     }
 
     public String getContentId() {
@@ -53,6 +59,13 @@ public class ConfluencePage {
         return this.version;
     }
 
+    /**
+     * The id of the page's parent, or {@code null} when the client does not report it.
+     */
+    public String getParentId() {
+        return this.parentId;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -64,6 +77,7 @@ public class ConfluencePage {
         if (!this.contentId.equals(that.contentId)) return false;
         //noinspection SimplifiableIfStatement
         if (!this.title.equals(that.title)) return false;
+        if (this.parentId != null ? !this.parentId.equals(that.parentId) : that.parentId != null) return false;
         return this.content != null ? this.content.equals(that.content) : that.content == null;
 
     }
@@ -74,6 +88,7 @@ public class ConfluencePage {
         result = 31 * result + this.title.hashCode();
         result = 31 * result + (this.content != null ? this.content.hashCode() : 0);
         result = 31 * result + this.version;
+        result = 31 * result + (this.parentId != null ? this.parentId.hashCode() : 0);
         return result;
     }
 
@@ -84,6 +99,7 @@ public class ConfluencePage {
                 ", title='" + this.title + '\'' +
                 ", content='" + this.content + '\'' +
                 ", version=" + this.version +
+                ", parentId='" + this.parentId + '\'' +
                 '}';
     }
 
