@@ -86,6 +86,10 @@ public class AsciidocConfluenceConverterTest {
         assertThat(subSubPageMetadata.getAttachments().size(), is(0));
         assertThat(subSubPageMetadata.getLabels().size(), is(1));
 
+        assertThat(indexPageMetadata.getSourcePath(), is("index.adoc"));
+        assertThat(subPageMetadata.getSourcePath(), is("index/sub-page.adoc"));
+        assertThat(subSubPageMetadata.getSourcePath(), is("index/sub-page/sub-sub-page.adoc"));
+
         assertContentFilePath(indexPageMetadata, targetFilePath(buildFolder, documentationRootFolder, "index.adoc", "index.html"));
         assertContentFilePath(subPageMetadata, targetFilePath(buildFolder, documentationRootFolder, "index/sub-page.adoc", "sub-page.html"));
         assertContentFilePath(subSubPageMetadata, targetFilePath(buildFolder, documentationRootFolder, "index/sub-page/sub-sub-page.adoc", "sub-sub-page.html"));

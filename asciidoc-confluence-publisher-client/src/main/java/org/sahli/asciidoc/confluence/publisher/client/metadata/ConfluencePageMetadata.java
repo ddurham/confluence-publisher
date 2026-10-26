@@ -32,6 +32,7 @@ public class ConfluencePageMetadata {
 
     private String title;
     private String contentFilePath;
+    private String sourcePath;
     private List<ConfluencePageMetadata> children = new ArrayList<>();
     private Map<String, String> attachments = new HashMap<>();
     private List<String> labels = new ArrayList<>();
@@ -52,6 +53,15 @@ public class ConfluencePageMetadata {
     @RuntimeUse
     public void setContentFilePath(String contentFilePath) {
         this.contentFilePath = contentFilePath;
+    }
+
+    public String getSourcePath() {
+        return this.sourcePath;
+    }
+
+    @RuntimeUse
+    public void setSourcePath(String sourcePath) {
+        this.sourcePath = sourcePath;
     }
 
     public List<ConfluencePageMetadata> getChildren() {

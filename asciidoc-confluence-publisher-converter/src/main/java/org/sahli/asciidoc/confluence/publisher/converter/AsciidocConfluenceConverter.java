@@ -101,7 +101,7 @@ public final class AsciidocConfluenceConverter {
             ensureAttachmentsExist(attachments);
 
             List<ConfluencePageMetadata> childConfluencePages = buildPageTree(templatesRootFolder, assetsRootFolder, asciidocPage.children(), sourceEncoding, pageTitlePostProcessor, userAttributes, spaceKey, rootFolder);
-            ConfluencePageMetadata confluencePageMetadata = buildConfluencePageMetadata(asciidocConfluencePage, contentFileTargetPath, childConfluencePages, attachments);
+            ConfluencePageMetadata confluencePageMetadata = buildConfluencePageMetadata(asciidocConfluencePage, asciidocPage, rootFolder, contentFileTargetPath, childConfluencePages, attachments);
 
             confluencePages.add(confluencePageMetadata);
         });
@@ -121,15 +121,20 @@ public final class AsciidocConfluenceConverter {
                 .collect(toList());
     }
 
-    private static ConfluencePageMetadata buildConfluencePageMetadata(AsciidocConfluencePage asciidocConfluencePage, Path contentFileTargetPath, List<ConfluencePageMetadata> childConfluencePages, List<AttachmentMetadata> attachments) {
+    private static ConfluencePageMetadata buildConfluencePageMetadata(AsciidocConfluencePage asciidocConfluencePage, AsciidocPage asciidocPage, Path rootFolder, Path contentFileTargetPath, List<ConfluencePageMetadata> childConfluencePages, List<AttachmentMetadata> attachments) {
         ConfluencePageMetadata confluencePageMetadata = new ConfluencePageMetadata();
         confluencePageMetadata.setTitle(asciidocConfluencePage.pageTitle());
         confluencePageMetadata.setContentFilePath(contentFileTargetPath.toAbsolutePath().toString());
+        confluencePageMetadata.setSourcePath(toSourcePath(rootFolder, asciidocPage.path()));
         confluencePageMetadata.setChildren(childConfluencePages);
         confluencePageMetadata.getAttachments().putAll(toTargetAttachmentFileNameAndAttachmentPath(attachments));
         confluencePageMetadata.getLabels().addAll(asciidocConfluencePage.keywords());
 
         return confluencePageMetadata;
+    }
+
+    private static String toSourcePath(Path rootFolder, Path pagePath) {
+        return rootFolder.toAbsolutePath().relativize(pagePath.toAbsolutePath()).toString().replace('\\', '/');
     }
 
     private static Path writeToTargetStructure(AsciidocPage asciidocPage, Path pageAssetsFolder, AsciidocConfluencePage asciidocConfluencePage) {

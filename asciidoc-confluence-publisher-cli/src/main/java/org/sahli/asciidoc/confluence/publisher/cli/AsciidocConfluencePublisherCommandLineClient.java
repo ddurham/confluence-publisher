@@ -41,6 +41,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Optional;
 
 import static java.lang.Double.parseDouble;
 import static java.lang.Integer.parseInt;
@@ -53,12 +54,14 @@ import static org.sahli.asciidoc.confluence.publisher.client.PublishingStrategy.
 
 public class AsciidocConfluencePublisherCommandLineClient {
 
+    private static final String PASSWORD_ENV_VARIABLE = "CONFLUENCE_PUBLISHER_PASSWORD";
+
     public static void main(String[] args) throws Exception {
         ArgumentsParser argumentsParser = new ArgumentsParser();
         String rootConfluenceUrl = argumentsParser.mandatoryArgument("rootConfluenceUrl", args);
         boolean skipSslVerification = argumentsParser.optionalBooleanArgument("skipSslVerification", args).orElse(false);
         String username = argumentsParser.optionalArgument("username", args).orElse(null);
-        String password = argumentsParser.mandatoryArgument("password", args);
+        String password = resolvePassword(args, System.getenv());
         String spaceKey = argumentsParser.mandatoryArgument("spaceKey", args);
         String ancestorId = argumentsParser.mandatoryArgument("ancestorId", args);
         String versionMessage = argumentsParser.optionalArgument("versionMessage", args).orElse(null);
@@ -93,6 +96,7 @@ public class AsciidocConfluencePublisherCommandLineClient {
         boolean convertOnly = argumentsParser.optionalBooleanArgument("convertOnly", args).orElse(false);
         boolean notifyWatchers = argumentsParser.optionalBooleanArgument("notifyWatchers", args).orElse(true);
         String restApiVersion = argumentsParser.optionalArgument("restApiVersion", args).orElse("v2");
+        Path metadataOutputFile = argumentsParser.optionalArgument("metadataOutputFile", args).map(Paths::get).orElse(null);
         boolean failOnError = argumentsParser.optionalBooleanArgument("failOnError", args).orElse(true);
 
         try {
@@ -101,6 +105,10 @@ public class AsciidocConfluencePublisherCommandLineClient {
 
             AsciidocConfluenceConverter asciidocConfluenceConverter = new AsciidocConfluenceConverter(spaceKey, ancestorId);
             ConfluencePublisherMetadata confluencePublisherMetadata = asciidocConfluenceConverter.convert(asciidocPagesStructureProvider, pageTitlePostProcessor, buildFolder, attributes);
+
+            if (metadataOutputFile != null) {
+                MetadataJsonWriter.write(confluencePublisherMetadata, metadataOutputFile);
+            }
 
             if (convertOnly) {
                 System.out.println("Publishing to Confluence skipped ('convert only' is enabled)");
@@ -123,6 +131,12 @@ public class AsciidocConfluencePublisherCommandLineClient {
                 deleteDirectory(buildFolder);
             }
         }
+    }
+
+    static String resolvePassword(String[] args, Map<String, String> env) {
+        return new ArgumentsParser().optionalArgument("password", args)
+                .or(() -> Optional.ofNullable(env.get(PASSWORD_ENV_VARIABLE)).filter((value) -> !value.isEmpty()))
+                .orElseThrow(() -> new IllegalArgumentException("mandatory argument 'password' is missing"));
     }
 
     private static ConfluenceClient buildConfluenceClient(String restApiVersion, String rootConfluenceUrl, ProxyConfiguration proxyConfiguration, boolean skipSslVerification, Double maxRequestsPerSecond, Integer connectionTTL, String username, String password) {
