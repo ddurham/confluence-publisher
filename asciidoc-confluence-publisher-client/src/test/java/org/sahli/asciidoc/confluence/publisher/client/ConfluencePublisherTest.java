@@ -48,6 +48,7 @@ import static org.hamcrest.Matchers.contains;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
@@ -731,6 +732,150 @@ public class ConfluencePublisherTest {
         inOrder.verify(confluenceClientMock).updatePage(eq("72189173"), any(), any(), any(), eq(2), any(), eq(true));
         inOrder.verify(confluenceClientMock, times(2)).addAttachment(eq("72189173"), any(), any());
         inOrder.verify(confluenceClientMock).setPropertyByKey("72189173", COMBINED_HASH_PROPERTY_KEY, combinedHash);
+    }
+
+    @Test
+    public void publish_withOwnership_newPage_addsOwnerLabelAndSourceProperty() {
+        // arrange
+        ConfluenceClient confluenceClientMock = mock(ConfluenceClient.class);
+        when(confluenceClientMock.getPageByTitle(anyString(), anyString(), anyString())).thenThrow(new NotFoundException());
+        when(confluenceClientMock.addPageUnderAncestor(anyString(), anyString(), anyString(), anyString(), any())).thenReturn("2345");
+
+        // act
+        ownedConfluencePublisher("one-page-with-source", confluenceClientMock).publish();
+
+        // assert
+        verify(confluenceClientMock).addLabels("2345", singletonList("syseng-src-abc"));
+        verify(confluenceClientMock).setPropertyByKey("2345", "syseng-source", "{\"repo\":\"group/repo\",\"path\":\"docs/meetings/notes/some-doc.adoc\"}");
+    }
+
+    @Test
+    public void publish_withOwnership_emptyPathPrefix_usesSourcePathOnly() {
+        // arrange
+        ConfluenceClient confluenceClientMock = mock(ConfluenceClient.class);
+        when(confluenceClientMock.getPageByTitle(anyString(), anyString(), anyString())).thenThrow(new NotFoundException());
+        when(confluenceClientMock.addPageUnderAncestor(anyString(), anyString(), anyString(), anyString(), any())).thenReturn("2345");
+
+        // act
+        ownedConfluencePublisher("one-page-with-source", confluenceClientMock, new Ownership("syseng-src-abc", "group/repo", "")).publish();
+
+        // assert
+        verify(confluenceClientMock).setPropertyByKey("2345", "syseng-source", "{\"repo\":\"group/repo\",\"path\":\"notes/some-doc.adoc\"}");
+    }
+
+    @Test
+    public void publish_existingPageWithoutOwnerLabel_throwsBeforeUpdate() {
+        // arrange
+        ConfluenceClient confluenceClientMock = mock(ConfluenceClient.class);
+        when(confluenceClientMock.getPageByTitle("~personalSpace", "72189173", "Some Confluence Content")).thenReturn("72");
+        when(confluenceClientMock.getPropertyByKey("72", COMBINED_HASH_PROPERTY_KEY)).thenReturn("someOtherCombinedHash");
+        when(confluenceClientMock.getLabels("72")).thenReturn(singletonList("other"));
+
+        // act
+        RuntimeException e = assertThrows(RuntimeException.class, () -> ownedConfluencePublisher("one-page-with-source", confluenceClientMock).publish());
+
+        // assert
+        PageOwnedElsewhereException cause = (PageOwnedElsewhereException) e.getCause();
+        assertThat(cause.getMessage(), is("page 'Some Confluence Content' (id 72) exists in space but was not published from group/repo; rename the doc or set a title prefix"));
+        assertThat(cause.getTitle(), is("Some Confluence Content"));
+        assertThat(cause.getContentId(), is("72"));
+        verify(confluenceClientMock, never()).updatePage(any(), any(), any(), any(), anyInt(), any(), anyBoolean());
+        verify(confluenceClientMock, never()).deletePropertyByKey(any(), any());
+        verify(confluenceClientMock, never()).setPropertyByKey(any(), any(), any());
+    }
+
+    @Test
+    public void publish_existingPageFromChildListingWithoutOwnerLabel_throwsBeforeUpdate() {
+        // arrange
+        ConfluenceClient confluenceClientMock = mock(ConfluenceClient.class);
+        when(confluenceClientMock.getChildPages("72189173")).thenReturn(singletonList(new ConfluencePage("72", "Some Confluence Content", 1)));
+        when(confluenceClientMock.getPropertyByKey("72", COMBINED_HASH_PROPERTY_KEY)).thenReturn("someOtherCombinedHash");
+        when(confluenceClientMock.getLabels("72")).thenReturn(emptyList());
+
+        // act + assert
+        assertThrows(RuntimeException.class, () -> ownedConfluencePublisher("one-page-with-source", confluenceClientMock).publish());
+        verify(confluenceClientMock, never()).updatePage(any(), any(), any(), any(), anyInt(), any(), anyBoolean());
+        verify(confluenceClientMock, never()).deletePropertyByKey(any(), any());
+    }
+
+    @Test
+    public void publish_existingOwnedPageUnchanged_makesNoLabelRequest() {
+        // arrange
+        String ownedHash = combinedHashSetWhenPublishingOwned("one-page-with-source");
+
+        ConfluenceClient confluenceClientMock = mock(ConfluenceClient.class);
+        when(confluenceClientMock.getPageByTitle(anyString(), anyString(), anyString())).thenReturn("72");
+        when(confluenceClientMock.getPropertyByKey("72", COMBINED_HASH_PROPERTY_KEY)).thenReturn(ownedHash);
+
+        // act
+        ownedConfluencePublisher("one-page-with-source", confluenceClientMock).publish();
+
+        // assert
+        verify(confluenceClientMock, never()).getLabels(any());
+        verify(confluenceClientMock, never()).updatePage(any(), any(), any(), any(), anyInt(), any(), anyBoolean());
+        verify(confluenceClientMock, never()).setPropertyByKey(any(), any(), any());
+    }
+
+    @Test
+    public void publish_existingOwnedPageChanged_deletesThenSetsSourceProperty() {
+        // arrange
+        ConfluenceClient confluenceClientMock = mock(ConfluenceClient.class);
+        when(confluenceClientMock.getPageByTitle(anyString(), anyString(), anyString())).thenReturn("72");
+        when(confluenceClientMock.getPropertyByKey("72", COMBINED_HASH_PROPERTY_KEY)).thenReturn("someOtherCombinedHash");
+        when(confluenceClientMock.getLabels("72")).thenReturn(singletonList("syseng-src-abc"));
+        when(confluenceClientMock.getPageWithContentAndVersionById("72")).thenReturn(new ConfluencePage("72", "Some Confluence Content", "<h1>old</h1>", 1));
+
+        // act
+        ownedConfluencePublisher("one-page-with-source", confluenceClientMock).publish();
+
+        // assert
+        InOrder inOrder = inOrder(confluenceClientMock);
+        inOrder.verify(confluenceClientMock).updatePage(eq("72"), any(), any(), any(), eq(2), any(), anyBoolean());
+        inOrder.verify(confluenceClientMock).deletePropertyByKey("72", "syseng-source");
+        inOrder.verify(confluenceClientMock).setPropertyByKey("72", "syseng-source", "{\"repo\":\"group/repo\",\"path\":\"docs/meetings/notes/some-doc.adoc\"}");
+    }
+
+    @Test
+    public void publish_withoutOwnership_combinedHashUnchanged() {
+        // arrange: the hash vail.3 computes for a page without labels or attachments, spelled out independently of the production code
+        String expectedHash = sha256Hex("title:Some Confluence Content\ncontent:" + SOME_CONFLUENCE_CONTENT_SHA256_HASH + "\n");
+
+        ConfluenceClient confluenceClientMock = mock(ConfluenceClient.class);
+        when(confluenceClientMock.getPageByTitle(anyString(), anyString(), anyString())).thenReturn("72");
+        when(confluenceClientMock.getPropertyByKey("72", COMBINED_HASH_PROPERTY_KEY)).thenReturn(expectedHash);
+
+        // act
+        confluencePublisher("one-page-with-source", confluenceClientMock).publish();
+
+        // assert
+        verify(confluenceClientMock, never()).getLabels(any());
+        verify(confluenceClientMock, never()).updatePage(any(), any(), any(), any(), anyInt(), any(), anyBoolean());
+        verify(confluenceClientMock, never()).setPropertyByKey(any(), any(), any());
+    }
+
+    private static String combinedHashSetWhenPublishingOwned(String qualifier) {
+        ConfluenceClient confluenceClientMock = mock(ConfluenceClient.class);
+        when(confluenceClientMock.getPageByTitle(anyString(), anyString(), anyString())).thenThrow(new NotFoundException());
+        when(confluenceClientMock.addPageUnderAncestor(anyString(), anyString(), anyString(), anyString(), any())).thenReturn("2345");
+
+        ownedConfluencePublisher(qualifier, confluenceClientMock).publish();
+
+        ArgumentCaptor<String> combinedHash = ArgumentCaptor.forClass(String.class);
+        verify(confluenceClientMock).setPropertyByKey(any(), eq(COMBINED_HASH_PROPERTY_KEY), combinedHash.capture());
+
+        return combinedHash.getValue();
+    }
+
+    private static ConfluencePublisher ownedConfluencePublisher(String qualifier, ConfluenceClient confluenceClient) {
+        return ownedConfluencePublisher(qualifier, confluenceClient, new Ownership("syseng-src-abc", "group/repo", "docs/meetings"));
+    }
+
+    private static ConfluencePublisher ownedConfluencePublisher(String qualifier, ConfluenceClient confluenceClient, Ownership ownership) {
+        Path metadataFilePath = Paths.get(TEST_RESOURCES + "/metadata-" + qualifier + ".json");
+        ConfluencePublisherMetadata metadata = readConfig(metadataFilePath);
+        resolveAbsoluteContentFileAndAttachmentsPath(metadata.getPages(), metadataFilePath.getParent().toAbsolutePath());
+
+        return new ConfluencePublisher(metadata, APPEND_TO_ANCESTOR, REMOVE_ORPHANS, confluenceClient, mock(ConfluencePublisherListener.class), null, true, ownership);
     }
 
     private static String combinedHashSetWhenPublishing(String qualifier) {

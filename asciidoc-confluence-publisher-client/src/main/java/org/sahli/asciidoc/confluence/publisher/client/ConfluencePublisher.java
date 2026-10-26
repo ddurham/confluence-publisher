@@ -16,6 +16,8 @@
 
 package org.sahli.asciidoc.confluence.publisher.client;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.sahli.asciidoc.confluence.publisher.client.http.ConfluenceAttachment;
 import org.sahli.asciidoc.confluence.publisher.client.http.ConfluenceClient;
 import org.sahli.asciidoc.confluence.publisher.client.http.ConfluencePage;
@@ -29,6 +31,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -55,6 +59,8 @@ public class ConfluencePublisher {
     static final String CONTENT_HASH_PROPERTY_KEY = "content-hash";
     static final String ATTACHMENT_HASH_SUFFIX = "-attachment-hash";
     static final String COMBINED_HASH_PROPERTY_KEY = "combined-hash";
+    static final String SOURCE_PROPERTY_KEY = "syseng-source";
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     static final int INITIAL_PAGE_VERSION = 1;
 
     private final ConfluencePublisherMetadata metadata;
@@ -64,10 +70,17 @@ public class ConfluencePublisher {
     private final ConfluencePublisherListener confluencePublisherListener;
     private final String versionMessage;
     private final boolean notifyWatchers;
+    private final Ownership ownership;
 
     public ConfluencePublisher(ConfluencePublisherMetadata metadata, PublishingStrategy publishingStrategy, OrphanRemovalStrategy orphanRemovalStrategy,
                                ConfluenceClient confluenceClient, ConfluencePublisherListener confluencePublisherListener,
                                String versionMessage, boolean notifyWatchers) {
+        this(metadata, publishingStrategy, orphanRemovalStrategy, confluenceClient, confluencePublisherListener, versionMessage, notifyWatchers, null);
+    }
+
+    public ConfluencePublisher(ConfluencePublisherMetadata metadata, PublishingStrategy publishingStrategy, OrphanRemovalStrategy orphanRemovalStrategy,
+                               ConfluenceClient confluenceClient, ConfluencePublisherListener confluencePublisherListener,
+                               String versionMessage, boolean notifyWatchers, Ownership ownership) {
         this.metadata = metadata;
         this.publishingStrategy = publishingStrategy;
         this.orphanRemovalStrategy = orphanRemovalStrategy;
@@ -75,6 +88,7 @@ public class ConfluencePublisher {
         this.confluencePublisherListener = confluencePublisherListener != null ? confluencePublisherListener : new NoOpConfluencePublisherListener();
         this.versionMessage = versionMessage;
         this.notifyWatchers = notifyWatchers;
+        this.ownership = ownership;
     }
 
     public void publish() {
@@ -188,6 +202,9 @@ public class ConfluencePublisher {
             this.confluencePublisherListener.pageAdded(new ConfluencePage(contentId, page.getTitle(), content, INITIAL_PAGE_VERSION));
 
             publishLabelsAndAttachments(contentId, page);
+            if (this.ownership != null) {
+                this.confluenceClient.setPropertyByKey(contentId, SOURCE_PROPERTY_KEY, sourceProperty(page));
+            }
             this.confluenceClient.setPropertyByKey(contentId, COMBINED_HASH_PROPERTY_KEY, combinedHash(page));
 
             return contentId;
@@ -202,9 +219,13 @@ public class ConfluencePublisher {
         String newCombinedHash = combinedHash(page);
         String existingCombinedHash = this.confluenceClient.getPropertyByKey(contentId, COMBINED_HASH_PROPERTY_KEY);
 
-        // one single property covers title, content, labels and attachments: nothing else to check for an unchanged page
+        // one single property covers title, content, labels, attachments and source: nothing else to check for an unchanged page
         if (newCombinedHash.equals(existingCombinedHash)) {
             return;
+        }
+
+        if (this.ownership != null && !this.confluenceClient.getLabels(contentId).contains(this.ownership.label())) {
+            throw new PageOwnedElsewhereException(page.getTitle(), contentId, this.ownership.repo());
         }
 
         if (existingCombinedHash != null) {
@@ -215,29 +236,71 @@ public class ConfluencePublisher {
         updatePage(contentId, ancestorId, page);
         publishLabelsAndAttachments(contentId, page);
 
+        if (this.ownership != null) {
+            // the v2 client only creates properties, so replace rather than overwrite
+            this.confluenceClient.deletePropertyByKey(contentId, SOURCE_PROPERTY_KEY);
+            this.confluenceClient.setPropertyByKey(contentId, SOURCE_PROPERTY_KEY, sourceProperty(page));
+        }
+
         this.confluenceClient.setPropertyByKey(contentId, COMBINED_HASH_PROPERTY_KEY, newCombinedHash);
     }
 
     private void publishLabelsAndAttachments(String contentId, ConfluencePageMetadata page) {
-        addOrUpdateLabels(contentId, page.getLabels());
+        addOrUpdateLabels(contentId, labels(page));
 
         deleteConfluenceAttachmentsNotPresentUnderPage(contentId, page.getAttachments());
         addAttachments(contentId, page.getAttachments());
     }
 
-    private static String combinedHash(ConfluencePageMetadata page) {
+    private String combinedHash(ConfluencePageMetadata page) {
         StringBuilder combined = new StringBuilder();
         combined.append("title:").append(page.getTitle()).append('\n');
         combined.append("content:").append(hash(fileContent(page.getContentFilePath(), UTF_8))).append('\n');
 
-        page.getLabels().stream()
+        labels(page).stream()
                 .sorted()
                 .forEach((label) -> combined.append("label:").append(label).append('\n'));
 
         new TreeMap<>(page.getAttachments())
                 .forEach((attachmentFileName, attachmentPath) -> combined.append("attachment:").append(attachmentFileName).append(':').append(hash(fileInputStream(Paths.get(attachmentPath)))).append('\n'));
 
+        if (this.ownership != null) {
+            combined.append("source:").append(this.ownership.repo()).append(':').append(repoRelativePath(page)).append('\n');
+        }
+
         return hash(combined.toString());
+    }
+
+    private List<String> labels(ConfluencePageMetadata page) {
+        List<String> labels = new ArrayList<>(page.getLabels());
+
+        if (this.ownership != null && !labels.contains(this.ownership.label())) {
+            labels.add(this.ownership.label());
+        }
+
+        return labels;
+    }
+
+    private String repoRelativePath(ConfluencePageMetadata page) {
+        if (page.getSourcePath() == null) {
+            throw new IllegalArgumentException("page '" + page.getTitle() + "' has no source path, which is required to publish with repo ownership");
+        }
+
+        String pathPrefix = this.ownership.pathPrefix();
+
+        return isNotBlank(pathPrefix) ? pathPrefix + "/" + page.getSourcePath() : page.getSourcePath();
+    }
+
+    private String sourceProperty(ConfluencePageMetadata page) {
+        Map<String, String> source = new LinkedHashMap<>();
+        source.put("repo", this.ownership.repo());
+        source.put("path", repoRelativePath(page));
+
+        try {
+            return OBJECT_MAPPER.writeValueAsString(source);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Could not serialize source property", e);
+        }
     }
 
     private void updatePage(String contentId, String ancestorId, ConfluencePageMetadata page) {

@@ -20,6 +20,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.sahli.asciidoc.confluence.publisher.client.Ownership;
 import org.sahli.asciidoc.confluence.publisher.client.metadata.ConfluencePageMetadata;
 import org.sahli.asciidoc.confluence.publisher.client.metadata.ConfluencePublisherMetadata;
 
@@ -56,6 +57,26 @@ public class CommandLineClientTest {
                 () -> AsciidocConfluencePublisherCommandLineClient.resolvePassword(new String[]{"spaceKey=X"}, emptyMap()));
 
         assertThat(e.getMessage(), is("mandatory argument 'password' is missing"));
+    }
+
+    @Test
+    public void resolveOwnership_allThree_buildsOwnership() {
+        Ownership ownership = AsciidocConfluencePublisherCommandLineClient.resolveOwnership(new String[]{"ownerLabel=syseng-src-abc", "ownerRepo=group/repo", "ownerPathPrefix=docs/meetings"});
+
+        assertThat(ownership.label(), is("syseng-src-abc"));
+        assertThat(ownership.repo(), is("group/repo"));
+        assertThat(ownership.pathPrefix(), is("docs/meetings"));
+    }
+
+    @Test
+    public void resolveOwnership_none_returnsNull() {
+        assertThat(AsciidocConfluencePublisherCommandLineClient.resolveOwnership(new String[]{"spaceKey=X"}), is((Ownership) null));
+    }
+
+    @Test
+    public void resolveOwnership_partial_throws() {
+        assertThrows(IllegalArgumentException.class,
+                () -> AsciidocConfluencePublisherCommandLineClient.resolveOwnership(new String[]{"ownerLabel=syseng-src-abc", "ownerRepo=group/repo"}));
     }
 
     @Test

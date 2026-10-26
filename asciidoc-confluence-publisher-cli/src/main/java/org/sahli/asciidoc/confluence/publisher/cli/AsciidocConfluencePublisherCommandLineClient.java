@@ -19,6 +19,7 @@ package org.sahli.asciidoc.confluence.publisher.cli;
 import org.sahli.asciidoc.confluence.publisher.client.ConfluencePublisher;
 import org.sahli.asciidoc.confluence.publisher.client.ConfluencePublisherListener;
 import org.sahli.asciidoc.confluence.publisher.client.OrphanRemovalStrategy;
+import org.sahli.asciidoc.confluence.publisher.client.Ownership;
 import org.sahli.asciidoc.confluence.publisher.client.PublishingStrategy;
 import org.sahli.asciidoc.confluence.publisher.client.http.ConfluenceClient;
 import org.sahli.asciidoc.confluence.publisher.client.http.ConfluencePage;
@@ -97,6 +98,7 @@ public class AsciidocConfluencePublisherCommandLineClient {
         boolean notifyWatchers = argumentsParser.optionalBooleanArgument("notifyWatchers", args).orElse(true);
         String restApiVersion = argumentsParser.optionalArgument("restApiVersion", args).orElse("v2");
         Path metadataOutputFile = argumentsParser.optionalArgument("metadataOutputFile", args).map(Paths::get).orElse(null);
+        Ownership ownership = resolveOwnership(args);
         boolean failOnError = argumentsParser.optionalBooleanArgument("failOnError", args).orElse(true);
 
         try {
@@ -117,7 +119,7 @@ public class AsciidocConfluencePublisherCommandLineClient {
                 ProxyConfiguration proxyConfiguration = new ProxyConfiguration(proxyScheme, proxyHost, proxyPort, proxyUsername, proxyPassword);
 
                 ConfluenceClient confluenceClient = buildConfluenceClient(restApiVersion, rootConfluenceUrl, proxyConfiguration, skipSslVerification, maxRequestsPerSecond, connectionTTL, username, password);
-                ConfluencePublisher confluencePublisher = new ConfluencePublisher(confluencePublisherMetadata, publishingStrategy, orphanRemovalStrategy, confluenceClient, new SystemOutLoggingConfluencePublisherListener(), versionMessage, notifyWatchers);
+                ConfluencePublisher confluencePublisher = new ConfluencePublisher(confluencePublisherMetadata, publishingStrategy, orphanRemovalStrategy, confluenceClient, new SystemOutLoggingConfluencePublisherListener(), versionMessage, notifyWatchers, ownership);
                 confluencePublisher.publish();
             }
         } catch (Exception e) {
@@ -137,6 +139,23 @@ public class AsciidocConfluencePublisherCommandLineClient {
         return new ArgumentsParser().optionalArgument("password", args)
                 .or(() -> Optional.ofNullable(env.get(PASSWORD_ENV_VARIABLE)).filter((value) -> !value.isEmpty()))
                 .orElseThrow(() -> new IllegalArgumentException("mandatory argument 'password' is missing"));
+    }
+
+    static Ownership resolveOwnership(String[] args) {
+        ArgumentsParser argumentsParser = new ArgumentsParser();
+        Optional<String> label = argumentsParser.optionalArgument("ownerLabel", args);
+        Optional<String> repo = argumentsParser.optionalArgument("ownerRepo", args);
+        Optional<String> pathPrefix = argumentsParser.optionalArgument("ownerPathPrefix", args);
+
+        if (label.isEmpty() && repo.isEmpty() && pathPrefix.isEmpty()) {
+            return null;
+        }
+
+        if (label.isEmpty() || repo.isEmpty() || pathPrefix.isEmpty()) {
+            throw new IllegalArgumentException("arguments 'ownerLabel', 'ownerRepo' and 'ownerPathPrefix' must be given together or not at all");
+        }
+
+        return new Ownership(label.get(), repo.get(), pathPrefix.get());
     }
 
     private static ConfluenceClient buildConfluenceClient(String restApiVersion, String rootConfluenceUrl, ProxyConfiguration proxyConfiguration, boolean skipSslVerification, Double maxRequestsPerSecond, Integer connectionTTL, String username, String password) {
