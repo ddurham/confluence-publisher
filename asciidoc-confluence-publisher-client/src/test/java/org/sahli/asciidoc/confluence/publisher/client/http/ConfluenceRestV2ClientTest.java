@@ -29,6 +29,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
+import java.time.Clock;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -224,7 +225,7 @@ public class ConfluenceRestV2ClientTest {
     }
 
     private ConfluenceRestV2Client confluenceRestV2Client(int maxRetries) {
-        TooManyRequestsRetry tooManyRequestsRetry = new TooManyRequestsRetry(maxRetries, 100, 60000, (millis) -> this.pauses.add(millis));
+        TooManyRequestsRetry tooManyRequestsRetry = new TooManyRequestsRetry(maxRetries, 100, 60000, (millis) -> this.pauses.add(millis), Clock.systemUTC());
 
         return new ConfluenceRestV2Client("http://localhost:" + this.server.getAddress().getPort(), this.httpClient, null, "user", "password", tooManyRequestsRetry);
     }

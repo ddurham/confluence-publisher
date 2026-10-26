@@ -57,7 +57,7 @@ import static java.util.stream.StreamSupport.stream;
 import static org.apache.http.HttpHeaders.AUTHORIZATION;
 import static org.apache.http.HttpHeaders.PROXY_AUTHORIZATION;
 import static org.apache.http.client.config.CookieSpecs.STANDARD;
-import static org.sahli.asciidoc.confluence.publisher.client.http.TooManyRequestsRetry.defaultTooManyRequestsRetry;
+import static org.sahli.asciidoc.confluence.publisher.client.http.TooManyRequestsRetry.tooManyRequestsRetry;
 import static org.sahli.asciidoc.confluence.publisher.client.utils.AssertUtils.assertMandatoryParameter;
 
 /**
@@ -74,17 +74,21 @@ public class ConfluenceRestV1Client implements ConfluenceClient {
     private final RateLimiter rateLimiter;
     private final TooManyRequestsRetry tooManyRequestsRetry;
 
-    public ConfluenceRestV1Client(String rootConfluenceUrl, boolean disableSslVerification, boolean enableHttpClientSystemProperties, Double maxRequestsPerSecond, Integer connectionTTL, String username, String passwordOrPersonalAccessToken) {
-        this(rootConfluenceUrl, null, disableSslVerification, enableHttpClientSystemProperties, maxRequestsPerSecond, connectionTTL, username, passwordOrPersonalAccessToken );
+    public ConfluenceRestV1Client(String rootConfluenceUrl, boolean disableSslVerification, boolean enableHttpClientSystemProperties, Double maxRequestsPerSecond, Integer maxRetriesOnTooManyRequests, Integer connectionTTL, String username, String passwordOrPersonalAccessToken) {
+        this(rootConfluenceUrl, null, disableSslVerification, enableHttpClientSystemProperties, maxRequestsPerSecond, maxRetriesOnTooManyRequests, connectionTTL, username, passwordOrPersonalAccessToken);
     }
 
-    public ConfluenceRestV1Client(String rootConfluenceUrl, ProxyConfiguration proxyConfiguration, boolean disableSslVerification, boolean enableHttpClientSystemProperties, Double maxRequestsPerSecond, Integer connectionTTL, String username, String passwordOrPersonalAccessToken) {
-        this(rootConfluenceUrl, defaultHttpClient(proxyConfiguration, disableSslVerification, enableHttpClientSystemProperties, connectionTTL), maxRequestsPerSecond, username,
+    public ConfluenceRestV1Client(String rootConfluenceUrl, ProxyConfiguration proxyConfiguration, boolean disableSslVerification, boolean enableHttpClientSystemProperties, Double maxRequestsPerSecond, Integer maxRetriesOnTooManyRequests, Integer connectionTTL, String username, String passwordOrPersonalAccessToken) {
+        this(rootConfluenceUrl, defaultHttpClient(proxyConfiguration, disableSslVerification, enableHttpClientSystemProperties, connectionTTL), maxRequestsPerSecond, maxRetriesOnTooManyRequests, username,
                 passwordOrPersonalAccessToken);
     }
 
     public ConfluenceRestV1Client(String rootConfluenceUrl, CloseableHttpClient httpClient, Double maxRequestsPerSecond, String username, String passwordOrPersonalAccessToken) {
-        this(rootConfluenceUrl, httpClient, maxRequestsPerSecond, username, passwordOrPersonalAccessToken, defaultTooManyRequestsRetry());
+        this(rootConfluenceUrl, httpClient, maxRequestsPerSecond, null, username, passwordOrPersonalAccessToken);
+    }
+
+    public ConfluenceRestV1Client(String rootConfluenceUrl, CloseableHttpClient httpClient, Double maxRequestsPerSecond, Integer maxRetriesOnTooManyRequests, String username, String passwordOrPersonalAccessToken) {
+        this(rootConfluenceUrl, httpClient, maxRequestsPerSecond, username, passwordOrPersonalAccessToken, tooManyRequestsRetry(maxRetriesOnTooManyRequests));
     }
 
     ConfluenceRestV1Client(String rootConfluenceUrl, CloseableHttpClient httpClient, Double maxRequestsPerSecond, String username, String passwordOrPersonalAccessToken, TooManyRequestsRetry tooManyRequestsRetry) {

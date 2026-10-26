@@ -23,6 +23,7 @@ import org.apache.http.HttpResponse;
 import org.apache.http.client.methods.HttpRequestBase;
 import org.apache.http.client.utils.DateUtils;
 
+import java.time.Clock;
 import java.util.Date;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -35,8 +36,6 @@ import static org.apache.http.HttpHeaders.RETRY_AFTER;
  */
 class TooManyRequestsRetry {
 
-    static final String MAX_RETRIES_SYSTEM_PROPERTY = "asciidoc-confluence-publisher.maxRetriesOnTooManyRequests";
-
     private static final Logger LOGGER = Logger.getLogger(TooManyRequestsRetry.class.getName());
 
     private static final int TOO_MANY_REQUESTS = 429;
@@ -48,16 +47,20 @@ class TooManyRequestsRetry {
     private final long initialBackoffMillis;
     private final long maxDelayMillis;
     private final Sleeper sleeper;
+    private final Clock clock;
 
-    TooManyRequestsRetry(int maxRetries, long initialBackoffMillis, long maxDelayMillis, Sleeper sleeper) {
+    TooManyRequestsRetry(int maxRetries, long initialBackoffMillis, long maxDelayMillis, Sleeper sleeper, Clock clock) {
         this.maxRetries = maxRetries;
         this.initialBackoffMillis = initialBackoffMillis;
         this.maxDelayMillis = maxDelayMillis;
         this.sleeper = sleeper;
+        this.clock = clock;
     }
 
-    static TooManyRequestsRetry defaultTooManyRequestsRetry() {
-        return new TooManyRequestsRetry(Integer.getInteger(MAX_RETRIES_SYSTEM_PROPERTY, DEFAULT_MAX_RETRIES), DEFAULT_INITIAL_BACKOFF_MILLIS, DEFAULT_MAX_DELAY_MILLIS, (millis) -> Thread.sleep(millis));
+    static TooManyRequestsRetry tooManyRequestsRetry(Integer maxRetriesOnTooManyRequests) {
+        int maxRetries = maxRetriesOnTooManyRequests != null ? maxRetriesOnTooManyRequests : DEFAULT_MAX_RETRIES;
+
+        return new TooManyRequestsRetry(maxRetries, DEFAULT_INITIAL_BACKOFF_MILLIS, DEFAULT_MAX_DELAY_MILLIS, (millis) -> Thread.sleep(millis), Clock.systemUTC());
     }
 
     boolean shouldRetry(HttpRequestBase request, HttpResponse response, int retriesSoFar) {
@@ -104,7 +107,7 @@ class TooManyRequestsRetry {
         return true;
     }
 
-    private static Long retryAfterMillis(HttpResponse response) {
+    private Long retryAfterMillis(HttpResponse response) {
         Header retryAfterHeader = response.getFirstHeader(RETRY_AFTER);
         if (retryAfterHeader == null || retryAfterHeader.getValue() == null) {
             return null;
@@ -118,7 +121,7 @@ class TooManyRequestsRetry {
 
         Date retryAt = DateUtils.parseDate(retryAfter);
 
-        return retryAt != null ? retryAt.getTime() - System.currentTimeMillis() : null;
+        return retryAt != null ? retryAt.getTime() - this.clock.millis() : null;
     }
 
 
