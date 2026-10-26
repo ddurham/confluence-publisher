@@ -741,11 +741,16 @@ public class ConfluencePublisherTest {
         when(confluenceClientMock.getPageByTitle(anyString(), anyString(), anyString())).thenThrow(new NotFoundException());
         when(confluenceClientMock.addPageUnderAncestor(anyString(), anyString(), anyString(), anyString(), any())).thenReturn("2345");
 
+        when(confluenceClientMock.getLabels("2345")).thenReturn(singletonList("syseng-src-abc"));
+
         // act
         ownedConfluencePublisher("one-page-with-source", confluenceClientMock).publish();
 
         // assert
-        verify(confluenceClientMock).addLabels("2345", singletonList("syseng-src-abc"));
+        InOrder inOrder = inOrder(confluenceClientMock);
+        inOrder.verify(confluenceClientMock).addPageUnderAncestor(any(), any(), any(), any(), any());
+        inOrder.verify(confluenceClientMock).addLabels("2345", singletonList("syseng-src-abc"));
+        inOrder.verify(confluenceClientMock).setPropertyByKey(eq("2345"), eq(CONTENT_HASH_PROPERTY_KEY), any());
         verify(confluenceClientMock).setPropertyByKey("2345", "syseng-source", "{\"repo\":\"group/repo\",\"path\":\"docs/meetings/notes/some-doc.adoc\"}");
     }
 
@@ -761,6 +766,34 @@ public class ConfluencePublisherTest {
 
         // assert
         verify(confluenceClientMock).setPropertyByKey("2345", "syseng-source", "{\"repo\":\"group/repo\",\"path\":\"notes/some-doc.adoc\"}");
+    }
+
+    @Test
+    public void publish_withOwnership_metadataAlreadyHasOwnerLabel_labelAddedOnce() {
+        // arrange
+        ConfluenceClient confluenceClientMock = mock(ConfluenceClient.class);
+        when(confluenceClientMock.getPageByTitle(anyString(), anyString(), anyString())).thenThrow(new NotFoundException());
+        when(confluenceClientMock.addPageUnderAncestor(anyString(), anyString(), anyString(), anyString(), any())).thenReturn("2345");
+
+        // act
+        ownedConfluencePublisher("one-page-with-source-and-owner-label", confluenceClientMock).publish();
+
+        // assert
+        verify(confluenceClientMock).addLabels("2345", asList("syseng-src-abc", "other-label"));
+    }
+
+    @Test
+    public void publish_withOwnership_pathPrefixWithTrailingSlashAndDotSlash_isNormalized() {
+        // arrange
+        ConfluenceClient confluenceClientMock = mock(ConfluenceClient.class);
+        when(confluenceClientMock.getPageByTitle(anyString(), anyString(), anyString())).thenThrow(new NotFoundException());
+        when(confluenceClientMock.addPageUnderAncestor(anyString(), anyString(), anyString(), anyString(), any())).thenReturn("2345");
+
+        // act
+        ownedConfluencePublisher("one-page-with-source", confluenceClientMock, new Ownership("syseng-src-abc", "group/repo", "./docs/meetings/")).publish();
+
+        // assert
+        verify(confluenceClientMock).setPropertyByKey("2345", "syseng-source", "{\"repo\":\"group/repo\",\"path\":\"docs/meetings/notes/some-doc.adoc\"}");
     }
 
     @Test
@@ -793,7 +826,8 @@ public class ConfluencePublisherTest {
         when(confluenceClientMock.getLabels("72")).thenReturn(emptyList());
 
         // act + assert
-        assertThrows(RuntimeException.class, () -> ownedConfluencePublisher("one-page-with-source", confluenceClientMock).publish());
+        RuntimeException e = assertThrows(RuntimeException.class, () -> ownedConfluencePublisher("one-page-with-source", confluenceClientMock).publish());
+        assertThat(e.getCause() instanceof PageOwnedElsewhereException, is(true));
         verify(confluenceClientMock, never()).updatePage(any(), any(), any(), any(), anyInt(), any(), anyBoolean());
         verify(confluenceClientMock, never()).deletePropertyByKey(any(), any());
     }

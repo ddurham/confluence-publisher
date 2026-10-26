@@ -40,6 +40,7 @@ import java.util.TreeMap;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Collections.emptyList;
 import static java.util.Collections.emptyMap;
+import static java.util.Collections.singletonList;
 import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
@@ -198,6 +199,10 @@ public class ConfluencePublisher {
         } catch (NotFoundException e) {
             String content = fileContent(page.getContentFilePath(), UTF_8);
             contentId = this.confluenceClient.addPageUnderAncestor(spaceKey, ancestorId, page.getTitle(), content, this.versionMessage);
+            if (this.ownership != null) {
+                // label first: a crash after creation must not strand a page that later runs would refuse as foreign
+                this.confluenceClient.addLabels(contentId, singletonList(this.ownership.label()));
+            }
             this.confluenceClient.setPropertyByKey(contentId, CONTENT_HASH_PROPERTY_KEY, hash(content));
             this.confluencePublisherListener.pageAdded(new ConfluencePage(contentId, page.getTitle(), content, INITIAL_PAGE_VERSION));
 
@@ -286,9 +291,25 @@ public class ConfluencePublisher {
             throw new IllegalArgumentException("page '" + page.getTitle() + "' has no source path, which is required to publish with repo ownership");
         }
 
-        String pathPrefix = this.ownership.pathPrefix();
+        String pathPrefix = normalizedPathPrefix(this.ownership.pathPrefix());
 
         return isNotBlank(pathPrefix) ? pathPrefix + "/" + page.getSourcePath() : page.getSourcePath();
+    }
+
+    private static String normalizedPathPrefix(String pathPrefix) {
+        if (pathPrefix == null) {
+            return "";
+        }
+
+        String normalized = pathPrefix;
+        while (normalized.startsWith("./")) {
+            normalized = normalized.substring(2);
+        }
+        while (normalized.endsWith("/")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
+
+        return normalized;
     }
 
     private String sourceProperty(ConfluencePageMetadata page) {

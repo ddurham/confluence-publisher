@@ -40,6 +40,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
@@ -123,6 +124,12 @@ public class AsciidocConfluencePublisherCommandLineClient {
                 confluencePublisher.publish();
             }
         } catch (Exception e) {
+            Throwable rootCause = e;
+            while (rootCause.getCause() != null) {
+                rootCause = rootCause.getCause();
+            }
+            System.err.println("Publishing to Confluence failed: " + rootCause.getMessage());
+
             if (failOnError) {
                 throw e;
             } else {
@@ -145,7 +152,11 @@ public class AsciidocConfluencePublisherCommandLineClient {
         ArgumentsParser argumentsParser = new ArgumentsParser();
         Optional<String> label = argumentsParser.optionalArgument("ownerLabel", args);
         Optional<String> repo = argumentsParser.optionalArgument("ownerRepo", args);
-        Optional<String> pathPrefix = argumentsParser.optionalArgument("ownerPathPrefix", args);
+        // the key's presence counts: `ownerPathPrefix=` means the docs live at the repo root
+        Optional<String> pathPrefix = Arrays.stream(args)
+                .filter((arg) -> arg.startsWith("ownerPathPrefix="))
+                .map((arg) -> arg.substring(arg.indexOf('=') + 1))
+                .findFirst();
 
         if (label.isEmpty() && repo.isEmpty() && pathPrefix.isEmpty()) {
             return null;

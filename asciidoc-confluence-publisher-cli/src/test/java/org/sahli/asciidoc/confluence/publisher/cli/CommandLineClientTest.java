@@ -69,6 +69,13 @@ public class CommandLineClientTest {
     }
 
     @Test
+    public void resolveOwnership_emptyPathPrefix_meansRepoRoot() {
+        Ownership ownership = AsciidocConfluencePublisherCommandLineClient.resolveOwnership(new String[]{"ownerLabel=syseng-src-abc", "ownerRepo=group/repo", "ownerPathPrefix="});
+
+        assertThat(ownership.pathPrefix(), is(""));
+    }
+
+    @Test
     public void resolveOwnership_none_returnsNull() {
         assertThat(AsciidocConfluencePublisherCommandLineClient.resolveOwnership(new String[]{"spaceKey=X"}), is((Ownership) null));
     }

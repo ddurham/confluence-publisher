@@ -1,0 +1,12 @@
+{
+  "spaceKey": "~personalSpace",
+  "ancestorId": "72189173",
+  "pages": [
+    {
+      "title": "Some Confluence Content",
+      "contentFilePath": "some-confluence-content.html",
+      "labels": ["syseng-src-abc", "other-label"],
+      "sourcePath": "notes/some-doc.adoc"
+    }
+  ]
+}
