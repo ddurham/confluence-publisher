@@ -15,6 +15,17 @@ upstream tag `0.35.0`. It exists because Atlassian throttles the publisher's pag
    attachments. When it matches, nothing else is requested for that page. Consequence: labels or
    attachments changed by hand in Confluence are only put back when the page's sources change.
 4. Ids of existing pages come from the parent's child listing instead of a title lookup per page.
+5. Command line client (`asciidoc-confluence-publisher-cli`), released as a self-contained
+   `-jar-with-dependencies` jar that also bundles `com.vailsys:confluence-softbreaks` (a source line
+   break is not turned into a hard break next to a code span):
+   - The token is read from the environment variable `CONFLUENCE_PUBLISHER_PASSWORD` (not a
+     command line argument).
+   - `metadataOutputFile=<path>` writes the published page tree as JSON, with each page's source
+     path. The parent directory must exist.
+   - `ownerLabel`, `ownerRepo` and `ownerPathPrefix` (all three or none) mark pages as owned by a
+     repo and refuse to overwrite pages of another one. An empty `ownerPathPrefix=` means the
+     repo root.
+   - A failed publish prints `Publishing to Confluence failed: <root cause>` on stderr.
 
 An unchanged page costs 2 requests (upstream: about 15 with four diagrams). The first publish of a
 tree with this fork costs slightly more than upstream, because it writes the combined hash on
@@ -31,11 +42,11 @@ logging configuration through `MAVEN_OPTS=-Djava.util.logging.config.file=...` t
 ## Building and releasing
 
 The poms stay at `0.0.0-SNAPSHOT`, as upstream; the version is set at build time. JDK 17 works.
-Only the Maven plugin and its two libraries are released (not the CLI, docs or Docker image).
+The Maven plugin, its two libraries and the CLI jar are released (not the docs or Docker image).
 
 ```bash
 ./mvnw versions:set -DnewVersion=0.35.0-vail.N -DgenerateBackupPoms=false   # do not commit
-./mvnw deploy -pl asciidoc-confluence-publisher-maven-plugin -am \
+./mvnw deploy -pl asciidoc-confluence-publisher-maven-plugin,asciidoc-confluence-publisher-cli -am \
   -DaltDeploymentRepository=nexus::https://nexus.vail/repository/maven-releases/
 git checkout -- . && git tag 0.35.0-vail.N && git push origin 0.35.0-vail.N
 ```
