@@ -1,7 +1,8 @@
 # Vail fork of confluence-publisher
 
-Fork of https://github.com/confluence-publisher/confluence-publisher (Apache-2.0), branched from
-upstream tag `0.35.0`. It exists because Atlassian throttles the publisher's page-tree walk with
+Fork of https://github.com/confluence-publisher/confluence-publisher (Apache-2.0), rebased onto
+upstream tag `0.36.0` (`0.35.0-vail.1` to `0.35.0-vail.7` were released from the branch on `0.35.0`,
+`vail/publish-adoc`). It exists because Atlassian throttles the publisher's page-tree walk with
 `429 Too Many Requests`, and upstream neither retries nor keeps the walk small.
 
 ## What differs from upstream
@@ -60,7 +61,7 @@ pluginManagement {
 
 // build.gradle.kts
 plugins {
-    id("org.sahli.asciidoc.confluence.publisher") version "0.35.0-vail.N"
+    id("org.sahli.asciidoc.confluence.publisher") version "0.36.0-vail.N"
 }
 
 repositories {
@@ -93,11 +94,11 @@ The Maven plugin, its two libraries, the CLI jar and the Gradle plugin are relea
 image).
 
 ```bash
-./mvnw versions:set -DnewVersion=0.35.0-vail.N -DgenerateBackupPoms=false   # do not commit
+./mvnw versions:set -DnewVersion=0.36.0-vail.N -DgenerateBackupPoms=false   # do not commit
 ./mvnw deploy -pl asciidoc-confluence-publisher-maven-plugin,asciidoc-confluence-publisher-cli -am \
   -DaltDeploymentRepository=nexus::https://nexus.vail/repository/maven-releases/
-(cd asciidoc-confluence-publisher-gradle-plugin && ./gradlew publish -Pversion=0.35.0-vail.N)
-git checkout -- . && git tag 0.35.0-vail.N && git push origin 0.35.0-vail.N
+(cd asciidoc-confluence-publisher-gradle-plugin && ./gradlew publish -Pversion=0.36.0-vail.N)
+git checkout -- . && git tag 0.36.0-vail.N && git push origin 0.36.0-vail.N
 ```
 
 The Gradle plugin compiles against the CLI of its own version, so deploy the CLI first. Its Nexus publish
@@ -106,6 +107,6 @@ Vail `~/.gradle/init.gradle`, whose duplicate `mavenJava` publication the build 
 run `./mvnw install -pl asciidoc-confluence-publisher-cli -am` and then `./gradlew build` (or
 `publishToMavenLocal`) in the plugin's directory; its functional tests take the publisher from `~/.m2`.
 
-`maven-releases` is immutable: bump `N` to redeploy. Use `install` instead of `deploy` to try a
-build from `~/.m2` first. The integration tests (`-Pintegration-tests`) need a real Confluence
-Cloud site and are not run here.
+`maven-releases` is immutable: bump `N` to redeploy; it starts again at 1 on a new upstream base.
+Use `install` instead of `deploy` to try a build from `~/.m2` first. The integration tests
+(`-Pintegration-tests`) need a real Confluence Cloud site and are not run here.
