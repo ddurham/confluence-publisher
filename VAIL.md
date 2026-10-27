@@ -95,16 +95,27 @@ image).
 
 ```bash
 ./mvnw versions:set -DnewVersion=0.36.0-vail.N -DgenerateBackupPoms=false   # do not commit
-./mvnw deploy -pl asciidoc-confluence-publisher-maven-plugin,asciidoc-confluence-publisher-cli -am \
+NEXUS_PASSWORD="$(pass show vail-nexus/password | head -n 1)" MAVEN_SKIP_RC=1 \
+  ./mvnw deploy -pl asciidoc-confluence-publisher-maven-plugin,asciidoc-confluence-publisher-cli -am \
   -DaltDeploymentRepository=nexus::https://nexus.vail/repository/maven-releases/
 (cd asciidoc-confluence-publisher-gradle-plugin && ./gradlew publish -Pversion=0.36.0-vail.N)
 git checkout -- . && git tag 0.36.0-vail.N && git push origin 0.36.0-vail.N
 ```
 
-The Gradle plugin compiles against the CLI of its own version, so deploy the CLI first. Its Nexus publish
-repository and credentials (`mavenUsername`, `mavenPassword` in `~/.gradle/gradle.properties`) come from the
-Vail `~/.gradle/init.gradle`, whose duplicate `mavenJava` publication the build skips. To try a change locally,
-run `./mvnw install -pl asciidoc-confluence-publisher-cli -am` and then `./gradlew build` (or
+No password is stored in a file; `pass` (or any command that prints it) supplies each one when a deploy needs it:
+
+- Maven: the `nexus` server in `~/.m2/settings.xml` has `<password>${env.NEXUS_PASSWORD}</password>`, filled for
+  the deploy command alone as above. `MAVEN_SKIP_RC=1` keeps `~/.mavenrc` out: one that exports
+  `CONFLUENCE_PUBLISHER_PASSWORD` for poms naming `asciidoc-confluence-publisher-maven-plugin` matches this repo's
+  root pom too, and the CLI tests that expect a missing password then fail. Build and test here without
+  `CONFLUENCE_PUBLISHER_*` in the environment.
+- Gradle: the plugin's Nexus publish repository comes from the Vail `~/.gradle/init.gradle`, whose duplicate
+  `mavenJava` publication the build skips. Its credentials are `mavenUsername` and
+  `mavenPasswordCommand=pass show vail-nexus/password` in `~/.gradle/gradle.properties`; the init script runs the
+  command only when the build publishes to Nexus.
+
+The Gradle plugin compiles against the CLI of its own version, so deploy the CLI first. To try a change locally,
+run `MAVEN_SKIP_RC=1 ./mvnw install -pl asciidoc-confluence-publisher-cli -am` and then `./gradlew build` (or
 `publishToMavenLocal`) in the plugin's directory; its functional tests take the publisher from `~/.m2`.
 
 `maven-releases` is immutable: bump `N` to redeploy; it starts again at 1 on a new upstream base.
