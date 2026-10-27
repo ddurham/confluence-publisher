@@ -13,3 +13,6 @@ target/
 .settings
 .classpath
 .factorypath
+# Gradle plugin build
+.gradle/
+build/

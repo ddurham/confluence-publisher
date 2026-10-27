@@ -75,7 +75,7 @@ public class CommandLineClientTest {
     @Test
     public void buildConfluenceClient_authorizationWithV1_throws() {
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
-                () -> AsciidocConfluencePublisherCommandLineClient.buildConfluenceClient("v1", "http://localhost", null, false, null, null, null, null, "Basic x"));
+                () -> PublishRunner.buildConfluenceClient("v1", "http://localhost", null, false, null, null, null, null, "Basic x"));
 
         assertThat(e.getMessage(), is("CONFLUENCE_PUBLISHER_AUTHORIZATION needs restApiVersion v2"));
     }

@@ -34,6 +34,41 @@ upstream tag `0.35.0`. It exists because Atlassian throttles the publisher's pag
      exists under the repo root (the doc moved here); otherwise, or without `ownerRepoRoot`, the
      publish is refused before any write, as two docs of the repo share a title in the space.
    - A failed publish prints `Publishing to Confluence failed: <root cause>` on stderr.
+6. Gradle plugin `org.sahli.asciidoc.confluence.publisher` (`asciidoc-confluence-publisher-gradle-plugin`, a
+   Gradle build of its own). Its `publishToConfluence` task takes the command line client's settings under the
+   same names and runs the same code (`PublishRunner`) in a forked worker JVM, so AsciidoctorJ and JRuby never
+   load into the build's JVM. The worker's classpath is the `confluencePublisher` configuration, which defaults
+   to the CLI artifact of the plugin's version.
+   - Defaults: `asciidocRootFolder` is `src/docs/asciidoc`, converted pages go to
+     `build/asciidoc-confluence-publisher`, `password` and `authorization` come from
+     `CONFLUENCE_PUBLISHER_PASSWORD` and `CONFLUENCE_PUBLISHER_AUTHORIZATION`.
+   - `maxRetriesOnTooManyRequests` and `workerMaxHeapSize` (for example `1g`) configure the worker JVM.
+   - Works with the configuration cache; the task is never up to date.
+
+```kotlin
+// settings.gradle.kts
+pluginManagement {
+    repositories {
+        maven { url = uri("https://nexus.vail/repository/maven-public/") }
+    }
+}
+
+// build.gradle.kts
+plugins {
+    id("org.sahli.asciidoc.confluence.publisher") version "0.35.0-vail.N"
+}
+
+repositories {
+    maven { url = uri("https://nexus.vail/repository/maven-public/") }
+}
+
+tasks.publishToConfluence {
+    rootConfluenceUrl = "https://example.atlassian.net/wiki"
+    username = "someone@vailsys.com"
+    spaceKey = "SPACE"
+    ancestorId = "123456"
+}
+```
 
 An unchanged page costs 2 requests (upstream: about 15 with four diagrams). The first publish of a
 tree with this fork costs slightly more than upstream, because it writes the combined hash on
@@ -50,14 +85,22 @@ logging configuration through `MAVEN_OPTS=-Djava.util.logging.config.file=...` t
 ## Building and releasing
 
 The poms stay at `0.0.0-SNAPSHOT`, as upstream; the version is set at build time. JDK 17 works.
-The Maven plugin, its two libraries and the CLI jar are released (not the docs or Docker image).
+The Maven plugin, its two libraries, the CLI jar and the Gradle plugin are released (not the docs or Docker
+image).
 
 ```bash
 ./mvnw versions:set -DnewVersion=0.35.0-vail.N -DgenerateBackupPoms=false   # do not commit
 ./mvnw deploy -pl asciidoc-confluence-publisher-maven-plugin,asciidoc-confluence-publisher-cli -am \
   -DaltDeploymentRepository=nexus::https://nexus.vail/repository/maven-releases/
+(cd asciidoc-confluence-publisher-gradle-plugin && ./gradlew publish -Pversion=0.35.0-vail.N)
 git checkout -- . && git tag 0.35.0-vail.N && git push origin 0.35.0-vail.N
 ```
+
+The Gradle plugin compiles against the CLI of its own version, so deploy the CLI first. Its Nexus publish
+repository and credentials (`mavenUsername`, `mavenPassword` in `~/.gradle/gradle.properties`) come from the
+Vail `~/.gradle/init.gradle`, whose duplicate `mavenJava` publication the build skips. To try a change locally,
+run `./mvnw install -pl asciidoc-confluence-publisher-cli -am` and then `./gradlew build` (or
+`publishToMavenLocal`) in the plugin's directory; its functional tests take the publisher from `~/.m2`.
 
 `maven-releases` is immutable: bump `N` to redeploy. Use `install` instead of `deploy` to try a
 build from `~/.m2` first. The integration tests (`-Pintegration-tests`) need a real Confluence
