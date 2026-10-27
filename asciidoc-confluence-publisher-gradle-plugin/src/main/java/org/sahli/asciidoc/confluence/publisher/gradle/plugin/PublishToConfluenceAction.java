@@ -46,7 +46,7 @@ public abstract class PublishToConfluenceAction implements WorkAction<PublishToC
             }
 
             if (authorization == null && !parameters.getPassword().isPresent()) {
-                throw new GradleException("'password' must be set (or CONFLUENCE_PUBLISHER_PASSWORD, or CONFLUENCE_PUBLISHER_AUTHORIZATION), unless 'convertOnly' is enabled");
+                throw new GradleException("'password' must be set (or CONFLUENCE_PUBLISHER_PASSWORD, 'passwordCommand', or CONFLUENCE_PUBLISHER_AUTHORIZATION), unless 'convertOnly' is enabled");
             }
         }
 

@@ -40,8 +40,13 @@ upstream tag `0.35.0`. It exists because Atlassian throttles the publisher's pag
    load into the build's JVM. The worker's classpath is the `confluencePublisher` configuration, which defaults
    to the CLI artifact of the plugin's version.
    - Defaults: `asciidocRootFolder` is `src/docs/asciidoc`, converted pages go to
-     `build/asciidoc-confluence-publisher`, `password` and `authorization` come from
-     `CONFLUENCE_PUBLISHER_PASSWORD` and `CONFLUENCE_PUBLISHER_AUTHORIZATION`.
+     `build/asciidoc-confluence-publisher`, `authorization` comes from `CONFLUENCE_PUBLISHER_AUTHORIZATION`.
+   - Credentials are per user and never stored by the build: `username` comes from
+     `CONFLUENCE_PUBLISHER_USERNAME`, else the Gradle property `confluencePublisher.username` (in the user's
+     own `~/.gradle/gradle.properties`). The token comes from `CONFLUENCE_PUBLISHER_PASSWORD`, else the first
+     line printed by `passwordCommand` (`CONFLUENCE_PUBLISHER_PASSWORD_COMMAND`, else
+     `confluencePublisher.passwordCommand`), a shell command such as `pass show confluence/token` run only
+     when publishing.
    - `maxRetriesOnTooManyRequests` and `workerMaxHeapSize` (for example `1g`) configure the worker JVM.
    - Works with the configuration cache; the task is never up to date.
 
@@ -64,7 +69,6 @@ repositories {
 
 tasks.publishToConfluence {
     rootConfluenceUrl = "https://example.atlassian.net/wiki"
-    username = "someone@vailsys.com"
     spaceKey = "SPACE"
     ancestorId = "123456"
 }

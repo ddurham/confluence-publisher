@@ -26,6 +26,7 @@ import org.gradle.api.attributes.LibraryElements;
 import org.gradle.api.attributes.Usage;
 import org.gradle.api.attributes.java.TargetJvmEnvironment;
 import org.gradle.api.model.ObjectFactory;
+import org.gradle.api.provider.Provider;
 import org.gradle.api.provider.ProviderFactory;
 
 import java.io.IOException;
@@ -68,8 +69,12 @@ public class AsciidocConfluencePublisherPlugin implements Plugin<Project> {
             task.getPublisherClasspath().from(publisherConfiguration);
             task.getAsciidocRootFolder().convention(project.getLayout().getProjectDirectory().dir("src/docs/asciidoc"));
             task.getBuildFolder().convention(project.getLayout().getBuildDirectory().dir("asciidoc-confluence-publisher"));
-            task.getPassword().convention(providers.environmentVariable("CONFLUENCE_PUBLISHER_PASSWORD").filter((value) -> !value.isEmpty()));
-            task.getAuthorization().convention(providers.environmentVariable("CONFLUENCE_PUBLISHER_AUTHORIZATION").filter((value) -> !value.isEmpty()));
+            task.getUsername().convention(nonEmpty(providers.environmentVariable("CONFLUENCE_PUBLISHER_USERNAME"))
+                    .orElse(nonEmpty(providers.gradleProperty("confluencePublisher.username"))));
+            task.getPassword().convention(nonEmpty(providers.environmentVariable("CONFLUENCE_PUBLISHER_PASSWORD")));
+            task.getPasswordCommand().convention(nonEmpty(providers.environmentVariable("CONFLUENCE_PUBLISHER_PASSWORD_COMMAND"))
+                    .orElse(nonEmpty(providers.gradleProperty("confluencePublisher.passwordCommand"))));
+            task.getAuthorization().convention(nonEmpty(providers.environmentVariable("CONFLUENCE_PUBLISHER_AUTHORIZATION")));
             task.getSkipSslVerification().convention(false);
             task.getPublishingStrategy().convention("APPEND_TO_ANCESTOR");
             task.getOrphanRemovalStrategy().convention("REMOVE_ORPHANS");
@@ -84,6 +89,10 @@ public class AsciidocConfluencePublisherPlugin implements Plugin<Project> {
             task.setGroup("documentation");
             task.setDescription("Publishes the asciidoc documentation to Confluence");
         });
+    }
+
+    private static Provider<String> nonEmpty(Provider<String> provider) {
+        return provider.filter((value) -> !value.isEmpty());
     }
 
     private static String pluginVersion() {

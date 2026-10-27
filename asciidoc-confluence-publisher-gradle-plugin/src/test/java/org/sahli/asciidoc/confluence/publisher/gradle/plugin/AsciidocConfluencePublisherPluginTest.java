@@ -33,6 +33,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.nio.file.StandardOpenOption.APPEND;
 import static org.gradle.testkit.runner.TaskOutcome.SUCCESS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -126,11 +127,39 @@ public class AsciidocConfluencePublisherPluginTest {
 
     @Test
     public void publish_withUrlButWithoutPassword_fails() throws IOException {
-        Files.writeString(this.projectDir.resolve("build.gradle"), "tasks.named('publishToConfluence') { rootConfluenceUrl = 'http://localhost:1' }\n", UTF_8, APPEND);
+        appendToBuild("tasks.named('publishToConfluence') { rootConfluenceUrl = 'http://localhost:1' }\n");
 
         BuildResult result = runner("publishToConfluence", "-PconvertOnly=false").buildAndFail();
 
         assertTrue(result.getOutput().contains("'password' must be set"), result.getOutput());
+    }
+
+    @Test
+    public void passwordCommand_suppliesThePassword() throws IOException {
+        appendToBuild("tasks.named('publishToConfluence') { rootConfluenceUrl = 'http://localhost:1' }\n");
+
+        BuildResult result = runner(Map.of("CONFLUENCE_PUBLISHER_USERNAME", "someone@example.com"),
+                "publishToConfluence", "-PconvertOnly=false", "-PconfluencePublisher.passwordCommand=printf 'token\\nmetadata\\n'").buildAndFail();
+
+        // past the password check, failing on the unreachable Confluence
+        assertTrue(result.getOutput().contains("Publishing to Confluence (REST API v2)"), result.getOutput());
+        assertFalse(result.getOutput().contains("'password' must be set"), result.getOutput());
+    }
+
+    @Test
+    public void passwordCommand_failing_failsTheTask() throws IOException {
+        appendToBuild("tasks.named('publishToConfluence') { rootConfluenceUrl = 'http://localhost:1' }\n");
+
+        BuildResult result = runner(Map.of("CONFLUENCE_PUBLISHER_PASSWORD_COMMAND", "exit 3"), "publishToConfluence", "-PconvertOnly=false").buildAndFail();
+
+        assertTrue(result.getOutput().contains("'passwordCommand' (exit 3) exited with 3"), result.getOutput());
+    }
+
+    @Test
+    public void passwordCommand_isNotRunForConvertOnly() {
+        BuildResult result = runner(Map.of("CONFLUENCE_PUBLISHER_PASSWORD_COMMAND", "exit 3"), "publishToConfluence").build();
+
+        assertEquals(SUCCESS, result.task(":publishToConfluence").getOutcome());
     }
 
     @Test
@@ -141,10 +170,14 @@ public class AsciidocConfluencePublisherPluginTest {
     }
 
     private GradleRunner runner(String... arguments) {
-        // the developer's own token must not leak into the build under test
+        return runner(Map.of(), arguments);
+    }
+
+    private GradleRunner runner(Map<String, String> extraEnvironment, String... arguments) {
+        // the developer's own credentials must not leak into the build under test
         Map<String, String> environment = new HashMap<>(System.getenv());
-        environment.remove("CONFLUENCE_PUBLISHER_PASSWORD");
-        environment.remove("CONFLUENCE_PUBLISHER_AUTHORIZATION");
+        environment.keySet().removeIf((name) -> name.startsWith("CONFLUENCE_PUBLISHER_"));
+        environment.putAll(extraEnvironment);
 
         return GradleRunner.create()
                 .withProjectDir(this.projectDir.toFile())
@@ -152,6 +185,10 @@ public class AsciidocConfluencePublisherPluginTest {
                 .withEnvironment(environment)
                 .withArguments(arguments)
                 .forwardOutput();
+    }
+
+    private void appendToBuild(String content) throws IOException {
+        Files.writeString(this.projectDir.resolve("build.gradle"), content, UTF_8, APPEND);
     }
 
     private void write(String relativePath, String content) throws IOException {

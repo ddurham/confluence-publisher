@@ -17,11 +17,13 @@
 package org.sahli.asciidoc.confluence.publisher.gradle.plugin;
 
 import org.gradle.api.DefaultTask;
+import org.gradle.api.GradleException;
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.file.RegularFileProperty;
 import org.gradle.api.provider.MapProperty;
 import org.gradle.api.provider.Property;
+import org.gradle.api.provider.ProviderFactory;
 import org.gradle.api.tasks.Classpath;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputDirectory;
@@ -33,10 +35,14 @@ import org.gradle.api.tasks.PathSensitive;
 import org.gradle.api.tasks.PathSensitivity;
 import org.gradle.api.tasks.TaskAction;
 import org.gradle.api.tasks.UntrackedTask;
+import org.gradle.process.ExecOperations;
+import org.gradle.process.ExecResult;
 import org.gradle.workers.WorkQueue;
 import org.gradle.workers.WorkerExecutor;
 
 import javax.inject.Inject;
+import java.io.ByteArrayOutputStream;
+import java.nio.charset.Charset;
 
 /**
  * Converts an asciidoc folder and publishes it to Confluence, with the same settings and defaults as the command line
@@ -54,6 +60,10 @@ public abstract class PublishToConfluence extends DefaultTask {
     @Input
     public abstract Property<Boolean> getSkipSslVerification();
 
+    /**
+     * Defaults to the environment variable {@code CONFLUENCE_PUBLISHER_USERNAME}, then the Gradle property
+     * {@code confluencePublisher.username}.
+     */
     @Input
     @Optional
     public abstract Property<String> getUsername();
@@ -63,6 +73,15 @@ public abstract class PublishToConfluence extends DefaultTask {
      */
     @Internal
     public abstract Property<String> getPassword();
+
+    /**
+     * A shell command that prints the API token, for example {@code pass show confluence/token}; run when publishing
+     * without a password or authorization, so the token is never stored. Defaults to the environment variable
+     * {@code CONFLUENCE_PUBLISHER_PASSWORD_COMMAND}, then the Gradle property {@code confluencePublisher.passwordCommand}.
+     */
+    @Input
+    @Optional
+    public abstract Property<String> getPasswordCommand();
 
     /**
      * A ready-made {@code Authorization} header value, sent instead of username and password (REST API v2 only);
@@ -208,8 +227,17 @@ public abstract class PublishToConfluence extends DefaultTask {
     @Inject
     protected abstract WorkerExecutor getWorkerExecutor();
 
+    @Inject
+    protected abstract ExecOperations getExecOperations();
+
+    @Inject
+    protected abstract ProviderFactory getProviders();
+
     @TaskAction
     public void publish() {
+        boolean needsPassword = !getConvertOnly().get() && !getAuthorization().isPresent() && !getPassword().isPresent();
+        String commandPassword = needsPassword && getPasswordCommand().isPresent() ? runPasswordCommand(getPasswordCommand().get()) : null;
+
         WorkQueue workQueue = getWorkerExecutor().processIsolation((spec) -> {
             spec.getClasspath().from(getPublisherClasspath());
             spec.forkOptions((forkOptions) -> {
@@ -227,7 +255,7 @@ public abstract class PublishToConfluence extends DefaultTask {
             parameters.getRootConfluenceUrl().set(getRootConfluenceUrl());
             parameters.getSkipSslVerification().set(getSkipSslVerification());
             parameters.getUsername().set(getUsername());
-            parameters.getPassword().set(getPassword());
+            parameters.getPassword().set(commandPassword != null ? getProviders().provider(() -> commandPassword) : getPassword());
             parameters.getAuthorization().set(getAuthorization());
             parameters.getSpaceKey().set(getSpaceKey());
             parameters.getAncestorId().set(getAncestorId());
@@ -257,6 +285,29 @@ public abstract class PublishToConfluence extends DefaultTask {
             parameters.getOwnerRepoRoot().set(getOwnerRepoRoot());
             parameters.getFailOnError().set(getFailOnError());
         });
+    }
+
+    private String runPasswordCommand(String command) {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        boolean windows = System.getProperty("os.name").toLowerCase().contains("windows");
+
+        ExecResult result = getExecOperations().exec((spec) -> {
+            spec.commandLine(windows ? new String[]{"cmd", "/c", command} : new String[]{"sh", "-c", command});
+            spec.setStandardOutput(output);
+            spec.setIgnoreExitValue(true);
+        });
+
+        if (result.getExitValue() != 0) {
+            throw new GradleException("'passwordCommand' (" + command + ") exited with " + result.getExitValue());
+        }
+
+        // the first line only: `pass show` prints further lines after the secret
+        String password = output.toString(Charset.defaultCharset()).lines().findFirst().orElse("").trim();
+        if (password.isEmpty()) {
+            throw new GradleException("'passwordCommand' (" + command + ") printed nothing");
+        }
+
+        return password;
     }
 
 }
